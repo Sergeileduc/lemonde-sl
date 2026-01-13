@@ -231,7 +231,8 @@ class LeMondeBase:
         html: str,
         output_path: str | PathLike[str],
         options: dict[str, str | list | None],
-    ) -> None:
+        remove_multimedia: bool = True,
+    ) -> tuple[bool, str | None]:
         """
         Generate a PDF file from a fully constructed HTML document.
 
@@ -243,11 +244,46 @@ class LeMondeBase:
             html (str): Full HTML document to render.
             output_path (str | PathLike[str]): Destination path for the PDF file.
             options (dict): PDFKit configuration options.
+            remove_multimedia (bool): Whether to attempt a fallback cleanup.
+
 
         Raises:
             OSError: If wkhtmltopdf is missing or pdfkit fails.
+
+        Returns:
+            tuple[bool, str | None]:
+                - success (bool)
+                - optional warning message (str | None)
         """
-        pdfkit.from_string(html, output_path=output_path, options=options)
+
+        try:
+            pdfkit.from_string(html, output_path=output_path, options=options)
+            return True, None
+
+        except OSError as e:
+            logger.error("wkhtmltopdf failed on first attempt")
+            logger.error(e)
+
+            if not remove_multimedia:
+                raise
+
+            logger.warning("Retrying after removing multimedia embeds")
+
+            # Remove multimedia blocks
+            cleaned_html = LexborHTMLParser(html)
+            for node in cleaned_html.css("div.multimedia-embed"):
+                node.decompose()
+
+            try:
+                pdfkit.from_string(cleaned_html.html, output_path=output_path, options=options)
+                return (
+                    True,
+                    "Multimedia content was removed because wkhtmltopdf could not render it.",
+                )
+            except Exception as e2:
+                logger.error("Second attempt failed as well")
+                logger.error(e2)
+                raise
 
     @staticmethod
     def extract_page_id(url: str) -> str:
@@ -400,7 +436,7 @@ class LeMonde(LeMondeBase):
         password: str | None = None,
         mobile: bool = False,
         dark: bool = False,
-    ) -> str:
+    ) -> tuple[bool, str | None, str]:
         """
         Télécharge un article, le nettoie et génère un PDF.
 
@@ -417,6 +453,8 @@ class LeMonde(LeMondeBase):
             password (str | None): Mot de passe associé. Si None, aucun login n'est effectué.
 
         Returns:
+            bool: success de la création du PDF
+            str | None : message d'erreur pendant la création du PDF
             str: Chemin du fichier PDF généré.
 
         Raises:
@@ -437,9 +475,9 @@ class LeMonde(LeMondeBase):
             dark=dark,
         )
         output_path = self.make_pdf_name(url)
-        self.to_pdf(full_html, output_path, pdf_options)
+        success, warning = self.to_pdf(full_html, output_path, pdf_options)
 
-        return output_path
+        return success, warning, output_path
 
     def close(self):
         self.client.close()
@@ -577,7 +615,7 @@ class LeMondeAsync(LeMondeBase):
         password: str | None = None,
         mobile: bool = False,
         dark: bool = False,
-    ) -> str:
+    ) -> tuple[bool, str | None, str]:
         """
         Télécharge un article LM, le nettoie et génère un PDF.
 
@@ -594,6 +632,8 @@ class LeMondeAsync(LeMondeBase):
             password (str | None): Mot de passe associé. Si None, aucun login n'est effectué.
 
         Returns:
+            bool: success de la création du PDF
+            str | None : message d'erreur pendant la création du PDF
             str: Chemin du fichier PDF généré.
 
         Raises:
@@ -620,7 +660,7 @@ class LeMondeAsync(LeMondeBase):
         output_path = self.make_pdf_name(url)
 
         # 4) generate PDF
-        self.to_pdf(full_html, output_path=output_path, options=pdf_options)
+        success, warning = self.to_pdf(full_html, output_path=output_path, options=pdf_options)
 
         return output_path
 
@@ -761,13 +801,16 @@ if __name__ == "__main__":
             #     print(f"Generate PDF file: {output_file}")
             #     lm.to_pdf(clean, output_path=output_file)
             # NEW CODE : one line !
-            lm.fetch_pdf(url=URL1, email=email, password=password, mobile=True, dark=True)
-            id = lm.extract_page_id(URL1)
-            print(f"Extracted page ID: {id}")
-            json_data = lm.fetch_comments(page_id=id, page=1, limit=5)
-            comments = [parse_comment(c) for c in json_data["comments"]]
-            for c in comments:
-                print(c)
+            success, warning, path = lm.fetch_pdf(
+                url=URL1, email=email, password=password, mobile=False, dark=True
+            )
+            print(success, warning, path)
+            # id = lm.extract_page_id(URL1)
+            # print(f"Extracted page ID: {id}")
+            # json_data = lm.fetch_comments(page_id=id, page=1, limit=5)
+            # comments = [parse_comment(c) for c in json_data["comments"]]
+            # for c in comments:
+            #     print(c)
 
     async def amain_context():
         print("Version ASYNC")
@@ -782,12 +825,12 @@ if __name__ == "__main__":
             #     lm.to_pdf(clean, output_path=output_file)
             # NEW CODE : one line !
             await lm.fetch_pdf(url=URL2, email=email, password=password, mobile=True, dark=True)
-            id = lm.extract_page_id(URL2)
-            print(f"Extracted page ID: {id}")
-            json_data = await lm.fetch_comments(page_id=id, page=1, limit=5)
-            comments = [parse_comment(c) for c in json_data["comments"]]
-            for c in comments:
-                print(c)
+            # id = lm.extract_page_id(URL2)
+            # print(f"Extracted page ID: {id}")
+            # json_data = await lm.fetch_comments(page_id=id, page=1, limit=5)
+            # comments = [parse_comment(c) for c in json_data["comments"]]
+            # for c in comments:
+            #     print(c)
 
     main_context()
     time.sleep(0.5)
