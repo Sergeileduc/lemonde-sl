@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from os import PathLike
+from pathlib import Path
 from typing import Self
 from urllib.parse import urljoin, urlparse
 
@@ -16,6 +17,8 @@ from rich import print
 from rich.panel import Panel
 from rich.text import Text
 from selectolax.lexbor import LexborHTMLParser, LexborNode
+
+from lemonde_sl.models import MyArticle
 
 logger = logging.getLogger(__name__)
 
@@ -436,7 +439,7 @@ class LeMonde(LeMondeBase):
         password: str | None = None,
         mobile: bool = False,
         dark: bool = False,
-    ) -> tuple[bool, str | None, str]:
+    ) -> MyArticle:
         """
         Télécharge un article, le nettoie et génère un PDF.
 
@@ -453,9 +456,7 @@ class LeMonde(LeMondeBase):
             password (str | None): Mot de passe associé. Si None, aucun login n'est effectué.
 
         Returns:
-            bool: success de la création du PDF
-            str | None : message d'erreur pendant la création du PDF
-            str: Chemin du fichier PDF généré.
+            MyArticle
 
         Raises:
             RuntimeError: Si l'article ne peut pas être récupéré ou nettoyé.
@@ -477,7 +478,12 @@ class LeMonde(LeMondeBase):
         output_path = self.make_pdf_name(url)
         success, warning = self.to_pdf(full_html, output_path, pdf_options)
 
-        return success, warning, output_path
+        # return success, warning, output_path
+        return MyArticle(
+            path=Path(output_path),
+            success=success,
+            warning=warning,
+        )
 
     def close(self):
         self.client.close()
@@ -615,7 +621,7 @@ class LeMondeAsync(LeMondeBase):
         password: str | None = None,
         mobile: bool = False,
         dark: bool = False,
-    ) -> tuple[bool, str | None, str]:
+    ) -> MyArticle:
         """
         Télécharge un article LM, le nettoie et génère un PDF.
 
@@ -632,9 +638,7 @@ class LeMondeAsync(LeMondeBase):
             password (str | None): Mot de passe associé. Si None, aucun login n'est effectué.
 
         Returns:
-            bool: success de la création du PDF
-            str | None : message d'erreur pendant la création du PDF
-            str: Chemin du fichier PDF généré.
+            MyArticle
 
         Raises:
             RuntimeError: Si l'article ne peut pas être récupéré ou nettoyé.
@@ -662,7 +666,11 @@ class LeMondeAsync(LeMondeBase):
         # 4) generate PDF
         success, warning = self.to_pdf(full_html, output_path=output_path, options=pdf_options)
 
-        return output_path
+        return MyArticle(
+            path=Path(output_path),
+            success=success,
+            warning=warning,
+        )
 
     async def logout(self) -> None:
         """Log out from the LM session (asynchronous).
@@ -801,10 +809,10 @@ if __name__ == "__main__":
             #     print(f"Generate PDF file: {output_file}")
             #     lm.to_pdf(clean, output_path=output_file)
             # NEW CODE : one line !
-            success, warning, path = lm.fetch_pdf(
+            article = lm.fetch_pdf(
                 url=URL1, email=email, password=password, mobile=False, dark=True
             )
-            print(success, warning, path)
+            print(article.path, article.success, article.warning)
             # id = lm.extract_page_id(URL1)
             # print(f"Extracted page ID: {id}")
             # json_data = lm.fetch_comments(page_id=id, page=1, limit=5)
@@ -824,7 +832,10 @@ if __name__ == "__main__":
             #     print(f"Generate PDF file: {output_file}")
             #     lm.to_pdf(clean, output_path=output_file)
             # NEW CODE : one line !
-            await lm.fetch_pdf(url=URL2, email=email, password=password, mobile=True, dark=True)
+            article = await lm.fetch_pdf(
+                url=URL2, email=email, password=password, mobile=True, dark=True
+            )
+            print(article.path, article.success, article.warning)
             # id = lm.extract_page_id(URL2)
             # print(f"Extracted page ID: {id}")
             # json_data = await lm.fetch_comments(page_id=id, page=1, limit=5)
