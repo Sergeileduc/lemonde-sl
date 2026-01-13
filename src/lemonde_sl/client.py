@@ -75,7 +75,14 @@ class LeMondeBase:
         if not article_body:
             logger.warning("Article body not found in HTML")
             return None
+
+        # 1) Remove UI junk
         cls._remove_bloats(article_body)
+
+        # 2) Fix lazy-loaded images BEFORE converting to HTML
+        cls._fix_image_urls(article_body)
+
+        # 3) Return cleaned HTML
         return article_body.html
 
     @staticmethod
@@ -162,6 +169,43 @@ class LeMondeBase:
         if not m:
             raise ValueError("Impossible d'extraire le pageId depuis l'URL")
         return m.group(1)
+
+    @staticmethod
+    def _fix_image_urls(article: LexborNode) -> None:
+        """
+        Normalize image URLs in an article by resolving lazy-loaded attributes.
+
+        This function scans all <img> elements in the provided HTML tree and ensures
+        that each image has a valid ``src`` attribute. Many news websites, including
+        Le Monde, use lazy‑loading techniques where the actual image URL is stored
+        in attributes such as ``data-srcset`` or ``data-src``. These attributes are
+        not interpreted by PDF generators (e.g., wkhtmltopdf), which results in
+        missing images in the final output.
+
+        The function extracts the most appropriate image URL from ``data-srcset``—
+        typically the "664w" or "1x" variant—and assigns it to ``src``. If
+        ``data-srcset`` is not available, it falls back to ``data-src``.
+
+        Args:
+            tree (LexborNode): A parsed HTML document or subtree from selectolax.
+
+        Returns:
+            None: The function mutates the HTML tree in place.
+        """
+        for img in article.css("img"):
+            # 1) data-srcset → choisir la meilleure image
+            if img.attributes.get("data-srcset"):
+                srcset = img.attributes["data-srcset"].split(",")
+                # On prend la première image "large" ou "1x"
+                for candidate in srcset:
+                    if "664w" in candidate or "1x" in candidate:
+                        url = candidate.strip().split(" ")[0]
+                        img.attributes["src"] = url
+                        break
+
+            # 2) fallback : data-src
+            elif img.attributes.get("data-src"):
+                img.attributes["src"] = img.attributes["data-src"]
 
 
 class LeMonde(LeMondeBase):
