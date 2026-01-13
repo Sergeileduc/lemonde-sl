@@ -1,44 +1,60 @@
-# name-of-package-sl
+# lemonde-sl
 
-A clean, modern Python package built with **uv**, **ruff**, **invoke**, and **hatchling**.  
-This project follows a strict, reproducible workflow with a `src/` layout, type checking, and automated tasks.
+A small, clean, typed Python client for interacting with **Le Monde** (login, PDF retrieval, etc.).  
+The project uses a modern workflow based on **uv**, **ruff**, **mypy**, **invoke**, and **hatchling**, with a `src/` layout.
 
-## Features
+## ✨ Features
 
-- Modern Python packaging with **Hatchling**
-- Strict type checking with **mypy**
-- Unified linting/formatting with **ruff**
-- Task automation with **invoke**
-- `src/` layout for clean imports
-- Fully compatible with **uv** for fast, isolated environments
+- Synchronous and asynchronous clients (`LeMonde`, `LeMondeAsync`)
+- Email + password authentication
+- PDF article download
+- Strict type checking (mypy)
+- Unified linting/formatting (ruff)
+- Modern build system (hatchling)
+- Automated tasks (invoke)
+- Fully compatible with **uv** for fast, reproducible environments
 
-## Installation
+## 📦 Installation
+
+The package is not published on PyPI. Install it directly from GitHub:
+
+### With uv
 
 ```bash
-uv pip install name-of-package-sl
+uv pip install git+https://github.com/Sergeileduc/lemonde-sl.git
 ```
 
-Or with pip:
+### With pip
 
 ```bash
-pip install name-of-package-sl
+pip install git+https://github.com/Sergeileduc/lemonde-sl.git
 ```
 
-## Usage
+## 🚀 Usage
 
 ```python
-import name_of_package_sl
+from lemonde_sl import LeMonde
 
-print(name_of_package_sl.__version__)
+with LeMonde() as lm:
+    lm.fetch_pdf(url=URL1, email=email, password=password)
 ```
 
-## Development
+Asynchronous version:
+
+```python
+from lemonde_sl import LeMondeAsync
+
+async with LeMondeAsync() as lm:
+    await lm.fetch_pdf(url=URL1, email=email, password=password)
+```
+
+## 🛠 Development
 
 Clone the repository:
 
 ```bash
-git clone https://github.com/your/repo.git
-cd name-of-package-sl
+git clone https://github.com/Sergeileduc/lemonde-sl.git
+cd lemonde-sl
 ```
 
 Install dependencies:
@@ -50,11 +66,10 @@ uv sync
 ### Available tasks
 
 ```bash
-invoke lint     # Run ruff checks
-invoke format   # Format code with ruff
+invoke lint     # Ruff checks
+invoke format   # Format code
 invoke test     # Run pytest
 invoke build    # Build wheel + sdist
-invoke publish  # Publish to PyPI
 invoke clean    # Remove build artifacts
 ```
 
@@ -71,14 +86,15 @@ invoke lint
 invoke format
 ```
 
-## Project structure
+## 📁 Project structure
 
 ```shell
-name-of-package-sl/
+lemonde-sl/
 │
 ├── src/
-│   └── name_of_package_sl/
-│       └── __init__.py
+│   └── lemonde_sl/
+│       ├── __init__.py
+│       └── client.py
 │
 ├── tests/
 │   └── test_basic.py
@@ -91,6 +107,6 @@ name-of-package-sl/
 └── docs/
 ```
 
-## License
+## 📄 License
 
-MIT License. See `LICENSE` for details.
+MIT — see `LICENSE`.
