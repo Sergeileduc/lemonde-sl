@@ -1,0 +1,145 @@
+[build-system]
+# Hatchling = build backend moderne, simple, rapide
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lemonde-sl"
+version = "0.1.0"
+description = "A clean, modern Python package using uv, ruff, invoke, and strict tooling."
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Sergeileduc", email = "sergei.leduc@gmail.com" }
+]
+
+requires-python = ">=3.12"
+
+# Dépendances runtime (si ton package en a)
+dependencies = [
+    "rich",
+    # "pyphpbb-sl @ git+https://github.com/Sergeileduc/pyphpbb-sl.git@v0.12.0",
+]
+
+# no necessary dependencies for runtime, but can be usefull for user
+# [project.optional-dependencies]
+# docs = [
+#     # "mkdocs",
+#     # "mkdocs-material",
+# ]
+# cli = [
+#     # "rich",
+#     # "typer",
+# ]
+# http = [
+#     # "httpx",
+# ]
+# full = [
+# #     "rich",
+# #     "httpx",
+# #     "typer",
+# #     "mkdocs",
+# #     "mkdocs-material",
+# ]
+
+
+
+
+# Classifiers PyPI (bonne pratique)
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+# [project.urls]
+# Homepage = "https://github.com/your/repo"
+# Documentation = "https://github.com/your/repo/docs"
+# Source = "https://github.com/your/repo"
+# Issues = "https://github.com/your/repo/issues"
+
+# ---------------------------------------------------------------------------
+
+[tool.hatch.build]
+# On inclut uniquement src/ dans la wheel
+packages = ["src/lemonde_sl"]
+
+[dependency-groups]
+dev = [
+    "coverage>=7.13.1",
+    "invoke>=2.2.1",
+    "mypy>=1.19.1",
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+    "ruff>=0.14.10",
+]
+
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+# Linter + formatter + import sorter
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+# ---------------------------------------------------------------------------
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_configs = true
+warn_unused_ignores = true
+warn_return_any = true
+warn_redundant_casts = true
+warn_unreachable = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+strict_optional = true
+ignore_missing_imports = true
+plugins = []
+files = ["src"]
+exclude = '''
+(
+    ^\.?venv.*$        # .venv, venv, venv11, .venv11, etc.
+  | ^env.*$            # env, env3.12, etc.
+  | ^tests?$           # test, tests
+  | ^tests/.*$         # contenu du dossier tests
+)
+'''
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+# ---------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-q"
+testpaths = ["tests"]
+
+# ---------------------------------------------------------------------------
+
+[tool.coverage.run]
+branch = true
+source = ["src"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+# ---------------------------------------------------------------------------
+
+[tool.invoke]
+# Pas obligatoire, mais tu peux ajouter des options globales ici plus tard
