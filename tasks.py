@@ -12,12 +12,14 @@ from invoke.tasks import task
 
 # TASKS------------------------------------------------------------------------
 
+
 @task
 def sync(c):
     """Synchronize the environment and show installed versions."""
     c.run("uv sync --dev", echo=True)
     print("\nInstalled packages:")
     c.run("uv pip list", echo=True)
+
 
 @task
 def lint(c):
@@ -101,6 +103,7 @@ def clean(c):
     print("Cleaning")
     pass
 
+
 @task(clean)
 def prune(c):
     """
@@ -131,7 +134,6 @@ def prune(c):
                 shutil.rmtree(path, ignore_errors=True)
             else:
                 path.unlink(missing_ok=True)
-
 
 
 @task
