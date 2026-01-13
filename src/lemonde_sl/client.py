@@ -127,29 +127,40 @@ class LeMondeBase:
         return f"{base}.pdf"
 
     @staticmethod
-    def to_pdf(html: str, output_path: str | PathLike[str]) -> None:
-        """Generate a PDF file from cleaned HTML content.
+    def _build_pdf_html(
+        fragment: str,
+        mobile: bool = False,
+        dark: bool = False,
+    ) -> tuple[str, dict[str, str | list | None]]:
+        """
+        Build a full HTML document and PDFKit options for rendering an article.
 
-        Uses ``pdfkit`` (wkhtmltopdf) to convert the article HTML into a printable
-        PDF document with predefined margins and a simple font stylesheet.
+        This function wraps a cleaned HTML fragment into a complete HTML document
+        and generates the appropriate PDFKit configuration depending on the
+        selected layout (mobile or desktop) and theme (light or dark).
 
         Args:
-            html (str): Cleaned HTML fragment representing the article body.
-            output_path (str | PathLike[str]): Destination path for the generated PDF file.
+            fragment (str): Cleaned HTML content to insert into the <body>.
+            mobile (bool): If True, use a compact mobile layout (A6).
+            dark (bool): If True, apply a dark theme suitable for night reading.
 
-        Raises:
-            OSError: If wkhtmltopdf is not installed or pdfkit fails.
-        """
-        # Set up fonts
-        css = """
-        <style>
-        body { font-family: sans-serif; }
-        </style>
+        Returns:
+            tuple[str, dict]: A tuple containing:
+                - The full HTML document as a string.
+                - A dictionary of PDFKit options.
         """
 
-        # Options PDFkit
-        page_size = "A4"
-        margin_mm = 20
+        # Page format + spacing rules
+        if mobile:
+            page_size = "A6"
+            margin_mm = 7 if not dark else 0
+            padding_mm = 0 if not dark else 7
+        else:
+            page_size = "A4"
+            margin_mm = 20 if not dark else 0
+            padding_mm = 0 if not dark else 20
+
+        # PDFKit options
         options = {
             "page-size": page_size,
             "margin-top": f"{margin_mm}mm",
@@ -161,7 +172,82 @@ class LeMondeBase:
             "custom-header": [("Accept-Encoding", "gzip")],
             "enable-local-file-access": "",
         }
-        pdfkit.from_string(css + html, output_path=output_path, options=options)
+
+        # Theme CSS
+        if dark:
+            css = f"""
+            <style>
+                html {{
+                    background: #121212;
+                }}
+                body {{
+                    background: transparent;
+                    color: #e0e0e0;
+                    margin: 0;
+                    padding: {padding_mm}mm;
+                    font-family: sans-serif;
+                    font-size: 12pt;
+                    line-height: 1.6;
+                    box-sizing: border-box;
+                }}
+                a {{
+                    color: #90caf9;
+                }}
+                img {{
+                    filter: brightness(0.8) contrast(1.2);
+                    max-width: 100%;
+                    height: auto;
+                }}
+            </style>
+            """
+        else:
+            css = """
+            <style>
+                body {
+                    font-family: sans-serif;
+                    font-size: 12pt;
+                    line-height: 1.6;
+                }
+            </style>
+            """
+
+        # Final HTML
+        html = f"""
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            {css}
+        </head>
+        <body>
+            {fragment}
+        </body>
+        </html>
+        """
+
+        return html.strip(), options
+
+    @staticmethod
+    def to_pdf(
+        html: str,
+        output_path: str | PathLike[str],
+        options: dict[str, str | list | None],
+    ) -> None:
+        """
+        Generate a PDF file from a fully constructed HTML document.
+
+        This function assumes the HTML has already been wrapped in a complete
+        <html> document with appropriate CSS and that PDFKit options have been
+        prepared upstream (e.g., via build_pdf_html).
+
+        Args:
+            html (str): Full HTML document to render.
+            output_path (str | PathLike[str]): Destination path for the PDF file.
+            options (dict): PDFKit configuration options.
+
+        Raises:
+            OSError: If wkhtmltopdf is missing or pdfkit fails.
+        """
+        pdfkit.from_string(html, output_path=output_path, options=options)
 
     @staticmethod
     def extract_page_id(url: str) -> str:
@@ -307,7 +393,14 @@ class LeMonde(LeMondeBase):
         html = self.fetch(url)
         return self.parse(html)
 
-    def fetch_pdf(self, url: str, email: str | None = None, password: str | None = None) -> str:
+    def fetch_pdf(
+        self,
+        url: str,
+        email: str | None = None,
+        password: str | None = None,
+        mobile: bool = False,
+        dark: bool = False,
+    ) -> str:
         """
         Télécharge un article, le nettoie et génère un PDF.
 
@@ -335,13 +428,18 @@ class LeMonde(LeMondeBase):
         if email and password:
             self.login(email, password)
 
-        clean = self.fetch_and_parse(url)
-        if not clean:
+        clean_html = self.fetch_and_parse(url)
+        if not clean_html:
             raise RuntimeError("Impossible de parser l'article")
-        output_file = self.make_pdf_name(url)
-        self.to_pdf(clean, output_path=output_file)
+        full_html, pdf_options = self._build_pdf_html(
+            fragment=clean_html,
+            mobile=mobile,
+            dark=dark,
+        )
+        output_path = self.make_pdf_name(url)
+        self.to_pdf(full_html, output_path, pdf_options)
 
-        return output_file
+        return output_path
 
     def close(self):
         self.client.close()
@@ -473,7 +571,12 @@ class LeMondeAsync(LeMondeBase):
         return self.parse(html)
 
     async def fetch_pdf(
-        self, url: str, email: str | None = None, password: str | None = None
+        self,
+        url: str,
+        email: str | None = None,
+        password: str | None = None,
+        mobile: bool = False,
+        dark: bool = False,
     ) -> str:
         """
         Télécharge un article LM, le nettoie et génère un PDF.
@@ -503,17 +606,23 @@ class LeMondeAsync(LeMondeBase):
             await self.login(email, password)
 
         # 2) fetch + parse
-        clean = await self.fetch_and_parse(url)
-        if not clean:
+        clean_html = await self.fetch_and_parse(url)
+        if not clean_html:
             raise RuntimeError("Impossible de parser l'article")
 
+        full_html, pdf_options = self._build_pdf_html(
+            fragment=clean_html,
+            mobile=mobile,
+            dark=dark,
+        )
+
         # 3) compute filename
-        output_file = self.make_pdf_name(url)
+        output_path = self.make_pdf_name(url)
 
         # 4) generate PDF
-        self.to_pdf(clean, output_path=output_file)
+        self.to_pdf(full_html, output_path=output_path, options=pdf_options)
 
-        return output_file
+        return output_path
 
     async def logout(self) -> None:
         """Log out from the LM session (asynchronous).
@@ -652,7 +761,7 @@ if __name__ == "__main__":
             #     print(f"Generate PDF file: {output_file}")
             #     lm.to_pdf(clean, output_path=output_file)
             # NEW CODE : one line !
-            lm.fetch_pdf(url=URL1, email=email, password=password)
+            lm.fetch_pdf(url=URL1, email=email, password=password, mobile=True, dark=True)
             id = lm.extract_page_id(URL1)
             print(f"Extracted page ID: {id}")
             json_data = lm.fetch_comments(page_id=id, page=1, limit=5)
@@ -672,7 +781,7 @@ if __name__ == "__main__":
             #     print(f"Generate PDF file: {output_file}")
             #     lm.to_pdf(clean, output_path=output_file)
             # NEW CODE : one line !
-            await lm.fetch_pdf(url=URL2, email=email, password=password)
+            await lm.fetch_pdf(url=URL2, email=email, password=password, mobile=True, dark=True)
             id = lm.extract_page_id(URL2)
             print(f"Extracted page ID: {id}")
             json_data = await lm.fetch_comments(page_id=id, page=1, limit=5)
