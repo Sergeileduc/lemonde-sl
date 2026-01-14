@@ -663,8 +663,12 @@ class LeMondeAsync(LeMondeBase):
         # 3) compute filename
         output_path = self.make_pdf_name(url)
 
-        # 4) generate PDF
-        success, warning = self.to_pdf(full_html, output_path=output_path, options=pdf_options)
+        # generate PDF
+        # little hack to make it really async and non blocking
+        loop = asyncio.get_running_loop()
+        success, warning = await loop.run_in_executor(
+            None, lambda: self.to_pdf(full_html, output_path=output_path, options=pdf_options)
+        )
 
         return MyArticle(
             path=Path(output_path),
