@@ -1,3 +1,6 @@
+![Ruff](https://img.shields.io/badge/style-ruff-0a7bff?logo=ruff&logoColor=white)
+![Ruff CI](https://github.com/Sergeileduc/lemonde-sl/actions/workflows/ruff.yml/badge.svg)
+
 # lemonde-sl
 
 A small, clean, typed Python client for interacting with **Le Monde** (login, PDF retrieval, etc.).  
