@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import time
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from os import PathLike
@@ -23,7 +24,7 @@ from lemonde_sl.models import MyArticle
 logger = logging.getLogger(__name__)
 
 
-class LeMondeBase:
+class LeMondeBase(ABC):
     load_dotenv()
     HOST = os.getenv("LM_SL_HOST") or ""
     SECURE_HOST = os.getenv("LM_SL_SECURE_HOST") or ""
@@ -230,65 +231,6 @@ class LeMondeBase:
         return html.strip(), options
 
     @staticmethod
-    def to_pdf(
-        html: str,
-        output_path: str | PathLike[str],
-        options: dict[str, str | list | None],
-        remove_multimedia: bool = True,
-    ) -> tuple[bool, str | None]:
-        """
-        Generate a PDF file from a fully constructed HTML document.
-
-        This function assumes the HTML has already been wrapped in a complete
-        <html> document with appropriate CSS and that PDFKit options have been
-        prepared upstream (e.g., via build_pdf_html).
-
-        Args:
-            html (str): Full HTML document to render.
-            output_path (str | PathLike[str]): Destination path for the PDF file.
-            options (dict): PDFKit configuration options.
-            remove_multimedia (bool): Whether to attempt a fallback cleanup.
-
-
-        Raises:
-            OSError: If wkhtmltopdf is missing or pdfkit fails.
-
-        Returns:
-            tuple[bool, str | None]:
-                - success (bool)
-                - optional warning message (str | None)
-        """
-
-        try:
-            pdfkit.from_string(html, output_path=output_path, options=options)
-            return True, None
-
-        except OSError as e:
-            logger.error("wkhtmltopdf failed on first attempt")
-            logger.error(e)
-
-            if not remove_multimedia:
-                raise
-
-            logger.warning("Retrying after removing multimedia embeds")
-
-            # Remove multimedia blocks
-            cleaned_html = LexborHTMLParser(html)
-            for node in cleaned_html.css("div.multimedia-embed"):
-                node.decompose()
-
-            try:
-                pdfkit.from_string(cleaned_html.html, output_path=output_path, options=options)
-                return (
-                    True,
-                    "Multimedia content was removed because wkhtmltopdf could not render it.",
-                )
-            except Exception as e2:
-                logger.error("Second attempt failed as well")
-                logger.error(e2)
-                raise
-
-    @staticmethod
     def extract_page_id(url: str) -> str:
         m = re.search(r"_(\d+)_\d+\.html$", url)
         if not m:
@@ -332,6 +274,15 @@ class LeMondeBase:
             elif img.attributes.get("data-src"):
                 img.attributes["src"] = img.attributes["data-src"]
 
+    @abstractmethod
+    def to_pdf(self, *args, **kwargs):
+        """Convert HTML to PDF (sync or async depending on subclass)."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def fetch_pdf(self, *args, **kwargs):
+        """Fetch PDF (sync or async depending on subclass)."""
+        raise NotImplementedError
 
 class LeMonde(LeMondeBase):
     def __init__(self):
@@ -484,6 +435,66 @@ class LeMonde(LeMondeBase):
             success=success,
             warning=warning,
         )
+
+    @staticmethod
+    def to_pdf(
+        html: str,
+        output_path: str | PathLike[str],
+        options: dict[str, str | list | None],
+        remove_multimedia: bool = True,
+    ) -> tuple[bool, str | None]:
+        """
+        Generate a PDF file from a fully constructed HTML document.
+
+        This function assumes the HTML has already been wrapped in a complete
+        <html> document with appropriate CSS and that PDFKit options have been
+        prepared upstream (e.g., via build_pdf_html).
+
+        Args:
+            html (str): Full HTML document to render.
+            output_path (str | PathLike[str]): Destination path for the PDF file.
+            options (dict): PDFKit configuration options.
+            remove_multimedia (bool): Whether to attempt a fallback cleanup.
+
+
+        Raises:
+            OSError: If wkhtmltopdf is missing or pdfkit fails.
+
+        Returns:
+            tuple[bool, str | None]:
+                - success (bool)
+                - optional warning message (str | None)
+        """
+
+        logger.info("Starting pdfkit")
+        try:
+            pdfkit.from_string(html, output_path=output_path, options=options)
+            return True, None
+
+        except OSError as e:
+            logger.error("wkhtmltopdf failed on first attempt")
+            logger.error(e)
+
+            if not remove_multimedia:
+                raise
+
+            logger.warning("Retrying after removing multimedia embeds")
+
+            # Remove multimedia blocks
+            cleaned_html = LexborHTMLParser(html)
+            for node in cleaned_html.css("div.multimedia-embed"):
+                node.decompose()
+
+            try:
+                pdfkit.from_string(cleaned_html.html, output_path=output_path, options=options)
+                return (
+                    True,
+                    "Multimedia content was removed because wkhtmltopdf could not render it.",
+                )
+            except Exception as e2:
+                logger.error("Second attempt failed as well")
+                logger.error(e2)
+                raise
 
     def close(self):
         self.client.close()
@@ -664,11 +675,11 @@ class LeMondeAsync(LeMondeBase):
         output_path = self.make_pdf_name(url)
 
         # generate PDF
-        # little hack to make it really async and non blocking
-        loop = asyncio.get_running_loop()
-        success, warning = await loop.run_in_executor(
-            None, lambda: self.to_pdf(full_html, output_path=output_path, options=pdf_options)
+        logger.info("launching to_pdf in running loop")
+        success, warning = await self.to_pdf(
+            html=full_html, output_path=output_path, options=pdf_options
         )
+        logger.info("to_pdf completed")
 
         return MyArticle(
             path=Path(output_path),
@@ -687,6 +698,66 @@ class LeMondeAsync(LeMondeBase):
         """
         r = await self.client.get(self.LOGOUT_URL)
         print("✅ Logout:", r.status_code)
+
+    @staticmethod
+    async def to_pdf(
+        html: str,
+        output_path: str | PathLike[str],
+        options: dict[str, str | list | None],
+        remove_multimedia: bool = True,
+    ) -> tuple[bool, str | None]:
+        """
+        Generate a PDF file from a fully constructed HTML document.
+
+        This function assumes the HTML has already been wrapped in a complete
+        <html> document with appropriate CSS and that PDFKit options have been
+        prepared upstream (e.g., via build_pdf_html).
+
+        Args:
+            html (str): Full HTML document to render.
+            output_path (str | PathLike[str]): Destination path for the PDF file.
+            options (dict): PDFKit configuration options.
+            remove_multimedia (bool): Whether to attempt a fallback cleanup.
+
+
+        Raises:
+            OSError: If wkhtmltopdf is missing or pdfkit fails.
+
+        Returns:
+            tuple[bool, str | None]:
+                - success (bool)
+                - optional warning message (str | None)
+        """
+
+        logger.info("Starting pdfkit")
+        try:
+            await asyncio.to_thread(pdfkit.from_string, html, output_path, options=options)
+            return True, None
+
+        except OSError as e:
+            logger.error("wkhtmltopdf failed on first attempt")
+            logger.error(e)
+
+            if not remove_multimedia:
+                raise
+
+            logger.warning("Retrying after removing multimedia embeds")
+
+            # Remove multimedia blocks
+            cleaned_html = LexborHTMLParser(html)
+            for node in cleaned_html.css("div.multimedia-embed"):
+                node.decompose()
+
+            try:
+                await asyncio.to_thread(pdfkit.from_string, html, output_path, options=options)
+                return (
+                    True,
+                    "Multimedia content was removed because wkhtmltopdf could not render it.",
+                )
+            except Exception as e2:
+                logger.error("Second attempt failed as well")
+                logger.error(e2)
+                raise
 
     async def close(self) -> None:
         await self.client.aclose()
