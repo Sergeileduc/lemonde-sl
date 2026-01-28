@@ -18,6 +18,7 @@ from rich import print
 from rich.panel import Panel
 from rich.text import Text
 from selectolax.lexbor import LexborHTMLParser, LexborNode
+from weasyprint import CSS, HTML
 
 from lemonde_sl.models import MyArticle
 
@@ -135,7 +136,7 @@ class LeMondeBase(ABC):
         fragment: str,
         mobile: bool = False,
         dark: bool = False,
-    ) -> tuple[str, dict[str, str | list | None]]:
+    ) -> tuple[str, str]:
         """
         Build a full HTML document and PDFKit options for rendering an article.
 
@@ -149,9 +150,9 @@ class LeMondeBase(ABC):
             dark (bool): If True, apply a dark theme suitable for night reading.
 
         Returns:
-            tuple[str, dict]: A tuple containing:
+            tuple[str, str]: A tuple containing:
                 - The full HTML document as a string.
-                - A dictionary of PDFKit options.
+                - A str of Weazykit css.
         """
 
         # Page format + spacing rules
@@ -164,63 +165,57 @@ class LeMondeBase(ABC):
             margin_mm = 20 if not dark else 0
             padding_mm = 0 if not dark else 20
 
-        # PDFKit options
-        options = {
-            "page-size": page_size,
-            "margin-top": f"{margin_mm}mm",
-            "margin-right": f"{margin_mm}mm",
-            "margin-bottom": f"{margin_mm}mm",
-            "margin-left": f"{margin_mm}mm",
-            "encoding": "UTF-8",
-            "no-outline": None,
-            "custom-header": [("Accept-Encoding", "gzip")],
-            "enable-local-file-access": "",
-        }
+        # CSS @page (équivalent des options PDFKit)
+        page_css = f"""
+        @page {{
+            size: {page_size};
+            margin: {margin_mm}mm;
+        }}
+        """
 
         # Theme CSS
         if dark:
-            css = f"""
-            <style>
-                html {{
-                    background: #121212;
-                }}
-                body {{
-                    background: transparent;
-                    color: #e0e0e0;
-                    margin: 0;
-                    padding: {padding_mm}mm;
-                    font-family: sans-serif;
-                    font-size: 12pt;
-                    line-height: 1.6;
-                    box-sizing: border-box;
-                }}
-                a {{
-                    color: #90caf9;
-                }}
-                img {{
-                    filter: brightness(0.8) contrast(1.2);
-                    max-width: 100%;
-                    height: auto;
-                }}
-            </style>
+            theme_css = f"""
+            html {{
+                background: #121212;
+            }}
+            body {{
+                background: transparent;
+                color: #e0e0e0;
+                margin: 0;
+                padding: {padding_mm}mm;
+                font-family: sans-serif;
+                font-size: 12pt;
+                line-height: 1.6;
+                box-sizing: border-box;
+            }}
+            a {{
+                color: #90caf9;
+            }}
+            img {{
+                filter: brightness(0.8) contrast(1.2);
+                max-width: 100%;
+                height: auto;
+            }}
             """
         else:
-            css = """
-            <style>
-                body {
-                    font-family: sans-serif;
-                    font-size: 12pt;
-                    line-height: 1.6;
-                }
-            </style>
+            theme_css = f"""
+            body {{
+                font-family: sans-serif;
+                font-size: 12pt;
+                line-height: 1.6;
+                padding: {padding_mm}mm;
+            }}
             """
 
-        # Final HTML
+        # CSS final
+        css_string = page_css + theme_css
+
+        # HTML final
         html = f"""
         <html>
         <head>
             <meta charset="UTF-8">
-            {css}
         </head>
         <body>
             {fragment}
@@ -228,7 +223,7 @@ class LeMondeBase(ABC):
         </html>
         """
 
-        return html.strip(), options
+        return html.strip(), css_string.strip()
 
     @staticmethod
     def extract_page_id(url: str) -> str:
@@ -283,6 +278,7 @@ class LeMondeBase(ABC):
     def fetch_pdf(self, *args, **kwargs):
         """Fetch PDF (sync or async depending on subclass)."""
         raise NotImplementedError
+
 
 class LeMonde(LeMondeBase):
     def __init__(self):
@@ -440,7 +436,7 @@ class LeMonde(LeMondeBase):
     def to_pdf(
         html: str,
         output_path: str | PathLike[str],
-        options: dict[str, str | list | None],
+        css: str,
         remove_multimedia: bool = True,
     ) -> tuple[bool, str | None]:
         """
@@ -453,7 +449,7 @@ class LeMonde(LeMondeBase):
         Args:
             html (str): Full HTML document to render.
             output_path (str | PathLike[str]): Destination path for the PDF file.
-            options (dict): PDFKit configuration options.
+            css (str): WeasyPrint configuration options. CSS string.
             remove_multimedia (bool): Whether to attempt a fallback cleanup.
 
 
@@ -468,7 +464,7 @@ class LeMonde(LeMondeBase):
 
         logger.info("Starting pdfkit")
         try:
-            pdfkit.from_string(html, output_path=output_path, options=options)
+            HTML(string=html).write_pdf(output_path, stylesheets=[CSS(string=css)])
             return True, None
 
         except OSError as e:
@@ -486,11 +482,9 @@ class LeMonde(LeMondeBase):
                 node.decompose()
 
             try:
-                pdfkit.from_string(cleaned_html.html, output_path=output_path, options=options)
-                return (
-                    True,
-                    "Multimedia content was removed because wkhtmltopdf could not render it.",
-                )
+                HTML(string=html).write_pdf(output_path, stylesheets=[CSS(string=css)])
+                return True, None
+
             except Exception as e2:
                 logger.error("Second attempt failed as well")
                 logger.error(e2)
@@ -677,7 +671,7 @@ class LeMondeAsync(LeMondeBase):
         # generate PDF
         logger.info("launching to_pdf in running loop")
         success, warning = await self.to_pdf(
-            html=full_html, output_path=output_path, options=pdf_options
+            html=full_html, output_path=output_path, css=pdf_options
         )
         logger.info("to_pdf completed")
 
@@ -703,7 +697,7 @@ class LeMondeAsync(LeMondeBase):
     async def to_pdf(
         html: str,
         output_path: str | PathLike[str],
-        options: dict[str, str | list | None],
+        css: str,
         remove_multimedia: bool = True,
     ) -> tuple[bool, str | None]:
         """
@@ -716,7 +710,7 @@ class LeMondeAsync(LeMondeBase):
         Args:
             html (str): Full HTML document to render.
             output_path (str | PathLike[str]): Destination path for the PDF file.
-            options (dict): PDFKit configuration options.
+            css (str): WeasyPrint configuration options.
             remove_multimedia (bool): Whether to attempt a fallback cleanup.
 
 
@@ -731,7 +725,7 @@ class LeMondeAsync(LeMondeBase):
 
         logger.info("Starting pdfkit")
         try:
-            await asyncio.to_thread(pdfkit.from_string, html, output_path, options=options)
+            await asyncio.to_thread(pdfkit.from_string, html, output_path, options=css)
             return True, None
 
         except OSError as e:
@@ -749,7 +743,7 @@ class LeMondeAsync(LeMondeBase):
                 node.decompose()
 
             try:
-                await asyncio.to_thread(pdfkit.from_string, html, output_path, options=options)
+                await asyncio.to_thread(pdfkit.from_string, html, output_path, options=css)
                 return (
                     True,
                     "Multimedia content was removed because wkhtmltopdf could not render it.",

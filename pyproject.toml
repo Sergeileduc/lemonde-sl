@@ -21,7 +21,7 @@ dependencies = [
     "rich",
     "httpx",
     "selectolax",
-    "pdfkit",
+    "weasyprint",
 ]
 
 # no necessary dependencies for runtime, but can be usefull for user
