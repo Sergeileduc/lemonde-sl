@@ -12,15 +12,19 @@ from typing import Self
 from urllib.parse import urljoin, urlparse
 
 import httpx
-import pdfkit
 from dotenv import load_dotenv
 from rich import print
 from rich.panel import Panel
 from rich.text import Text
-from selectolax.lexbor import LexborHTMLParser, LexborNode
+from selectolax.parser import HTMLParser, Node
+
 from weasyprint import CSS, HTML
 
-from lemonde_sl.models import MyArticle
+from lemonde_sl.models import MyArticle, JSONObject
+from lemonde_sl.tools import fix_image_urls, simplify_picture_tags
+
+# debug
+from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +58,8 @@ class LeMondeBase(ABC):
         "section.inread",
         "div.catcher__favorite",
         "a.Header__offer",
+        "noscript",
+        ".services-carousel",
     ]
 
     # ---------------------------------------------------------
@@ -74,25 +80,22 @@ class LeMondeBase(ABC):
             str|None: Cleaned HTML fragment containing the article body, or ``None`` if the
             article structure cannot be found.
         """
+        # 1) Selectolax : extraction + nettoyage structurel
+        parser = HTMLParser(html)
 
-        parser = LexborHTMLParser(html)
         article_body = parser.css_first("main > .article--content")
         if not article_body:
             logger.warning("Article body not found in HTML")
             return None
 
-        # 1) Remove UI junk
+        # Remove UI junk
         cls._remove_bloats(article_body)
 
-        # 2) Fix lazy-loaded images BEFORE converting to HTML
-        cls._fix_image_urls(article_body)
-
-        # 3) Return cleaned HTML
         return article_body.html
 
     @staticmethod
     def _make_payload(raw_html: str, email: str, password: str) -> dict[str, str]:
-        parser = LexborHTMLParser(raw_html)
+        parser = HTMLParser(raw_html)
 
         form = parser.css_first('form[method="post"]')
         if not form:
@@ -112,7 +115,7 @@ class LeMondeBase(ABC):
         return payload
 
     @classmethod
-    def _remove_bloats(cls, article: LexborNode) -> None:
+    def _remove_bloats(cls, article: Node) -> None:
         "Remove some bloats in the article soup."
         for c in cls.CSS_BLOATS:
             try:
@@ -138,10 +141,10 @@ class LeMondeBase(ABC):
         dark: bool = False,
     ) -> tuple[str, str]:
         """
-        Build a full HTML document and PDFKit options for rendering an article.
+        Build a full HTML document and weasyprint options for rendering an article.
 
         This function wraps a cleaned HTML fragment into a complete HTML document
-        and generates the appropriate PDFKit configuration depending on the
+        and generates the appropriate weasyprint configuration depending on the
         selected layout (mobile or desktop) and theme (light or dark).
 
         Args:
@@ -160,17 +163,44 @@ class LeMondeBase(ABC):
             page_size = "A6"
             margin_mm = 7 if not dark else 0
             padding_mm = 0 if not dark else 7
+            title_scale = 0.6   # réduit à 60%
+            legend_scale = 0.8
         else:
             page_size = "A4"
             margin_mm = 20 if not dark else 0
             padding_mm = 0 if not dark else 20
+            title_scale = 1.0   # normal
+            legend_scale = 1.0
 
-        # CSS @page (équivalent des options PDFKit)
+
+        # CSS @page (équivalent des options weasyprint)
         page_css = f"""
         @page {{
             size: {page_size};
             margin: {margin_mm}mm;
         }}
+        """
+
+        title_css = f"""
+        h1 {{
+            font-size: calc(2.5rem * {title_scale});
+            line-height: 1.2;
+        }}
+
+        h2 {{
+            font-size: calc(1.8rem * {title_scale});
+            line-height: 1.3;
+        }}
+
+        h3 {{
+            font-size: calc(1.4rem * {title_scale});
+            line-height: 1.3;
+        }}
+        .article__legend {{
+            font-size: calc(0.875rem * {legend_scale});
+            line-height: 1.3;
+        }}
+
         """
 
         # Theme CSS
@@ -206,10 +236,15 @@ class LeMondeBase(ABC):
                 line-height: 1.6;
                 padding: {padding_mm}mm;
             }}
+            img {{
+                max-width: 100%;
+                height: auto;
+            }}
             """
 
+
         # CSS final
-        css_string = page_css + theme_css
+        css_string = page_css + title_css + theme_css
 
         # HTML final
         html = f"""
@@ -231,43 +266,6 @@ class LeMondeBase(ABC):
         if not m:
             raise ValueError("Impossible d'extraire le pageId depuis l'URL")
         return m.group(1)
-
-    @staticmethod
-    def _fix_image_urls(article: LexborNode) -> None:
-        """
-        Normalize image URLs in an article by resolving lazy-loaded attributes.
-
-        This function scans all <img> elements in the provided HTML tree and ensures
-        that each image has a valid ``src`` attribute. Many news websites, including
-        Le Monde, use lazy‑loading techniques where the actual image URL is stored
-        in attributes such as ``data-srcset`` or ``data-src``. These attributes are
-        not interpreted by PDF generators (e.g., wkhtmltopdf), which results in
-        missing images in the final output.
-
-        The function extracts the most appropriate image URL from ``data-srcset``—
-        typically the "664w" or "1x" variant—and assigns it to ``src``. If
-        ``data-srcset`` is not available, it falls back to ``data-src``.
-
-        Args:
-            tree (LexborNode): A parsed HTML document or subtree from selectolax.
-
-        Returns:
-            None: The function mutates the HTML tree in place.
-        """
-        for img in article.css("img"):
-            # 1) data-srcset → choisir la meilleure image
-            if img.attributes.get("data-srcset"):
-                srcset = img.attributes["data-srcset"].split(",")
-                # On prend la première image "large" ou "1x"
-                for candidate in srcset:
-                    if "664w" in candidate or "1x" in candidate:
-                        url = candidate.strip().split(" ")[0]
-                        img.attributes["src"] = url
-                        break
-
-            # 2) fallback : data-src
-            elif img.attributes.get("data-src"):
-                img.attributes["src"] = img.attributes["data-src"]
 
     @abstractmethod
     def to_pdf(self, *args, **kwargs):
@@ -334,7 +332,7 @@ class LeMonde(LeMondeBase):
         r = self.client.get(self.LOGOUT_URL)
         print("✅ Logout:", r.status_code)
 
-    def fetch(self, url: str) -> str:
+    def fetch(self, url: str, mobile: bool = False) -> str:
         """Fetch an article (synchronous).
 
         Sends an authenticated GET request using ``httpx.Client`` and returns the
@@ -376,7 +374,7 @@ class LeMonde(LeMondeBase):
         Raises:
             httpx.HTTPStatusError: If the server returns a 4xx or 5xx status code.
         """
-        html = self.fetch(url)
+        html = self.fetch(url=url)
         return self.parse(html)
 
     def fetch_pdf(
@@ -414,9 +412,19 @@ class LeMonde(LeMondeBase):
         if email and password:
             self.login(email, password)
 
-        clean_html = self.fetch_and_parse(url)
+        clean_html = self.fetch_and_parse(url=url)
+
         if not clean_html:
             raise RuntimeError("Impossible de parser l'article")
+
+        # Clean images with BeautifulSoup before giving to PDF generation
+        soup = BeautifulSoup(clean_html, "lxml")
+        target_size = 200 if mobile else 550
+        simplify_picture_tags(soup, target_width=target_size)
+        fix_image_urls(soup, target_width=target_size)
+        clean_html = str(soup)
+
+        # Making PDF !
         full_html, pdf_options = self._build_pdf_html(
             fragment=clean_html,
             mobile=mobile,
@@ -443,7 +451,7 @@ class LeMonde(LeMondeBase):
         Generate a PDF file from a fully constructed HTML document.
 
         This function assumes the HTML has already been wrapped in a complete
-        <html> document with appropriate CSS and that PDFKit options have been
+        <html> document with appropriate CSS and that weasypring options have been
         prepared upstream (e.g., via build_pdf_html).
 
         Args:
@@ -454,7 +462,7 @@ class LeMonde(LeMondeBase):
 
 
         Raises:
-            OSError: If wkhtmltopdf is missing or pdfkit fails.
+            OSError: If weasypring is missing or weasypring fails.
 
         Returns:
             tuple[bool, str | None]:
@@ -462,13 +470,14 @@ class LeMonde(LeMondeBase):
                 - optional warning message (str | None)
         """
 
-        logger.info("Starting pdfkit")
+        logger.info("Starting weasypring")
+
         try:
             HTML(string=html).write_pdf(output_path, stylesheets=[CSS(string=css)])
             return True, None
 
         except OSError as e:
-            logger.error("wkhtmltopdf failed on first attempt")
+            logger.error("weasypring failed on first attempt")
             logger.error(e)
 
             if not remove_multimedia:
@@ -477,7 +486,7 @@ class LeMonde(LeMondeBase):
             logger.warning("Retrying after removing multimedia embeds")
 
             # Remove multimedia blocks
-            cleaned_html = LexborHTMLParser(html)
+            cleaned_html = HTMLParser(html)
             for node in cleaned_html.css("div.multimedia-embed"):
                 node.decompose()
 
@@ -524,14 +533,14 @@ class LeMonde(LeMondeBase):
         text = Text("\n".join(lines), style="cyan")
         return Panel(text, title="LeMonde", title_align="left", border_style="blue")
 
-    def fetch_comments(self, page_id: str, page: int = 1, limit: int = 20) -> dict:
+    def fetch_comments(self, page_id: str, page: int = 1, limit: int = 20) -> JSONObject:
         url = (
             f"{self.HOST}/ajax/feedbacks/page"
             f"?pageId={page_id}&page={page}&limit={limit}&order=likes"
         )
         resp = self.client.get(url)
         resp.raise_for_status()
-        return resp.json()
+        return resp.json()  # type: ignore
 
 
 class LeMondeAsync(LeMondeBase):
@@ -659,6 +668,14 @@ class LeMondeAsync(LeMondeBase):
         if not clean_html:
             raise RuntimeError("Impossible de parser l'article")
 
+        # Clean images with BeautifulSoup before giving to PDF generation
+        soup = BeautifulSoup(clean_html, "lxml")
+        target_size = 200 if mobile else 550
+        simplify_picture_tags(soup, target_width=target_size)
+        fix_image_urls(soup, target_width=target_size)
+        clean_html = str(soup)
+
+        # Making PDF
         full_html, pdf_options = self._build_pdf_html(
             fragment=clean_html,
             mobile=mobile,
@@ -704,7 +721,7 @@ class LeMondeAsync(LeMondeBase):
         Generate a PDF file from a fully constructed HTML document.
 
         This function assumes the HTML has already been wrapped in a complete
-        <html> document with appropriate CSS and that PDFKit options have been
+        <html> document with appropriate CSS and that weasyprint options have been
         prepared upstream (e.g., via build_pdf_html).
 
         Args:
@@ -715,7 +732,7 @@ class LeMondeAsync(LeMondeBase):
 
 
         Raises:
-            OSError: If wkhtmltopdf is missing or pdfkit fails.
+            OSError: If weasyprint is missing or weasyprint fails.
 
         Returns:
             tuple[bool, str | None]:
@@ -723,13 +740,18 @@ class LeMondeAsync(LeMondeBase):
                 - optional warning message (str | None)
         """
 
-        logger.info("Starting pdfkit")
+        logger.info("Starting weasyprint")
         try:
-            await asyncio.to_thread(pdfkit.from_string, html, output_path, options=css)
+            await asyncio.to_thread(
+                lambda: HTML(string=html).write_pdf(
+                    output_path,
+                    stylesheets=[CSS(string=css)]
+                )
+            )
             return True, None
 
         except OSError as e:
-            logger.error("wkhtmltopdf failed on first attempt")
+            logger.error("weazyprint failed on first attempt")
             logger.error(e)
 
             if not remove_multimedia:
@@ -738,12 +760,17 @@ class LeMondeAsync(LeMondeBase):
             logger.warning("Retrying after removing multimedia embeds")
 
             # Remove multimedia blocks
-            cleaned_html = LexborHTMLParser(html)
+            cleaned_html = HTMLParser(html)
             for node in cleaned_html.css("div.multimedia-embed"):
                 node.decompose()
 
             try:
-                await asyncio.to_thread(pdfkit.from_string, html, output_path, options=css)
+                await asyncio.to_thread(
+                    lambda: HTML(string=html).write_pdf(
+                        output_path,
+                        stylesheets=[CSS(string=css)]
+                    )
+                )
                 return (
                     True,
                     "Multimedia content was removed because wkhtmltopdf could not render it.",
@@ -781,14 +808,14 @@ class LeMondeAsync(LeMondeBase):
         text = Text("\n".join(lines), style="cyan")
         return Panel(text, title="LeMondeAsync", title_align="left", border_style="blue")
 
-    async def fetch_comments(self, page_id: str, page: int = 1, limit: int = 20) -> dict:
+    async def fetch_comments(self, page_id: str, page: int = 1, limit: int = 20) -> JSONObject:
         url = (
             f"{self.HOST}/ajax/feedbacks/page"
             f"?pageId={page_id}&page={page}&limit={limit}&order=likes"
         )
         resp = await self.client.get(url)
         resp.raise_for_status()
-        return resp.json()
+        return resp.json()  # type: ignore
 
 
 @dataclass

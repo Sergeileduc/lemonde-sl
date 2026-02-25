@@ -13,7 +13,7 @@ authors = [
     { name = "Sergeileduc", email = "sergei.leduc@gmail.com" }
 ]
 
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 
 # Dépendances runtime (si ton package en a)
 dependencies = [
@@ -22,6 +22,8 @@ dependencies = [
     "httpx",
     "selectolax",
     "weasyprint",
+    "bs4",
+    "lxml",
 ]
 
 # no necessary dependencies for runtime, but can be usefull for user
