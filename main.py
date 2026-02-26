@@ -37,16 +37,19 @@ async def runasync():
         #     url=URL2, email=email, password=password, mobile=True, dark=True
         # )
         # print(article.path, article.success, article.warning)
-        matrix = ["normal_light", "normal_dark", "mobile_light", "mobile_dark"]
-        articles = await lm.fetch_multiple_pdf(
-            url=URL2, email=email, password=password, matrix=matrix
-        )
-        for article in articles:
-            print(article.path, article.success, article.warning)
+        # matrix = ["normal_light", "normal_dark", "mobile_light", "mobile_dark"]
+        # articles = await lm.fetch_multiple_pdf(
+        #     url=URL2, email=email, password=password, matrix=matrix
+        # )
+
+        # for article in articles:
+        #     print(article.path, article.success, article.warning)
+
+        await lm.fetch_all_pdf(url=URL2, email=email, password=password)
 
 if __name__ == "__main__":
     import time
 
     runsync()
     time.sleep(0.5)
-    # asyncio.run(runasync())
+    asyncio.run(runasync())

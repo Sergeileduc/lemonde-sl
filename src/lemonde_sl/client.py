@@ -608,37 +608,6 @@ class LeMondeAsync(LeMondeBase):
 
         return await self.render_variant_pdf(article_body, name=output_path, mobile=mobile, dark=dark)
 
-
-    async def render_variant_pdf(
-        self, article_body: str, name: str, mobile: bool = False, dark: bool = False
-    ) -> MyArticle:
-        """ "Makes a pdf from article_body.
-        Should be called after login and after fetch_and_parse.
-        """
-        # Clean images with BeautifulSoup before giving to PDF generation
-        soup = BeautifulSoup(article_body, "lxml")
-        target_size = 200 if mobile else 550
-        simplify_picture_tags(soup, target_width=target_size)
-        fix_image_urls(soup, target_width=target_size)
-        clean_html = str(soup)
-
-        # Making HTML ready for pdf
-        full_html, pdf_options = build_pdf_html(
-            fragment=clean_html,
-            mobile=mobile,
-            dark=dark,
-        )
-
-        # Making PDF
-        success, warning = await self.to_pdf(full_html, name, pdf_options)
-
-        # return success, warning, output_path
-        return MyArticle(
-            path=Path(name),
-            success=success,
-            warning=warning,
-        )
-
     async def fetch_multiple_pdf(
         self,
         url: str,
@@ -689,6 +658,46 @@ class LeMondeAsync(LeMondeBase):
             article = await self.render_variant_pdf(article_body, name=name, mobile=mobile, dark=dark)
             my_articles.append(article)
         return my_articles
+
+    async def fetch_all_pdf(
+        self,
+        url: str,
+        email: str | None = None,
+        password: str | None = None,
+        matrix: list[str] = [],
+    ) -> list[MyArticle]:
+        matrix = ["normal_light", "normal_dark", "mobile_light", "mobile_dark"]
+        return await self.fetch_multiple_pdf(url=url, email=email, password=password, matrix=matrix)
+
+    async def render_variant_pdf(
+        self, article_body: str, name: str, mobile: bool = False, dark: bool = False
+    ) -> MyArticle:
+        """ "Makes a pdf from article_body.
+        Should be called after login and after fetch_and_parse.
+        """
+        # Clean images with BeautifulSoup before giving to PDF generation
+        soup = BeautifulSoup(article_body, "lxml")
+        target_size = 200 if mobile else 550
+        simplify_picture_tags(soup, target_width=target_size)
+        fix_image_urls(soup, target_width=target_size)
+        clean_html = str(soup)
+
+        # Making HTML ready for pdf
+        full_html, pdf_options = build_pdf_html(
+            fragment=clean_html,
+            mobile=mobile,
+            dark=dark,
+        )
+
+        # Making PDF
+        success, warning = await self.to_pdf(full_html, name, pdf_options)
+
+        # return success, warning, output_path
+        return MyArticle(
+            path=Path(name),
+            success=success,
+            warning=warning,
+        )
 
     async def logout(self) -> None:
         """Log out from the LM session (asynchronous).
