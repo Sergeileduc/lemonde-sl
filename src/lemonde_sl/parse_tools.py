@@ -1,7 +1,7 @@
 import logging
 import re
 
-from selectolax.parser import HTMLParser, Node
+from selectolax.parser import Node
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +13,7 @@ def extract_page_id(url: str) -> str:
     return m.group(1)
 
 
-def _remove_bloats(article: Node, bloats: list = []) -> None:
+def remove_bloats(article: Node, bloats: list) -> None:
     "Remove some bloats in the article soup."
     for c in bloats:
         try:

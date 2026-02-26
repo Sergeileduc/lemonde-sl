@@ -1,6 +1,6 @@
 # from dataclasses import dataclass
 import os
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
 PRESETS = {
     "desk_light": {"mobile": False, "dark": False},

@@ -4,7 +4,7 @@ import os
 from dotenv import load_dotenv
 from rich import print
 
-from lemonde_sl import LeMonde, LeMondeAsync, parse_comment
+from lemonde_sl import LeMonde, LeMondeAsync
 
 # Login credentials
 load_dotenv()
@@ -46,6 +46,7 @@ async def runasync():
         #     print(article.path, article.success, article.warning)
 
         await lm.fetch_all_pdf(url=URL2, email=email, password=password)
+
 
 if __name__ == "__main__":
     import time

@@ -63,7 +63,6 @@ Recommandation :
 
 `uv pip list`
 
-
 ## exemple de Github action
 
 ```yaml
@@ -89,3 +88,17 @@ jobs:
       - name: Run tests
         run: uv run pytest -q
 ```
+
+## Docker
+
+Pour build (ou rebuild, en utilisant le cache) :
+
+`docker build -t monpdf .`
+
+Pour rebuild sans cache :
+
+`docker build --no-cache -t monpdf .`
+
+Pour run en indiquant le .env :
+
+`docker run --rm -v "$(Get-Location):/app" --env-file .env monpdf`

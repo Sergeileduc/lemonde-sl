@@ -1,10 +1,8 @@
 import asyncio
 import logging
 import os
-import re
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
 from datetime import datetime
 from os import PathLike
 from pathlib import Path
@@ -12,21 +10,19 @@ from typing import Self
 from urllib.parse import urljoin
 
 import httpx
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from rich import print
 from rich.panel import Panel
 from rich.text import Text
 from selectolax.parser import HTMLParser, Node
-
 from weasyprint import CSS, HTML
 
-from lemonde_sl.models import Comment, MyArticle, JSONObject
+from lemonde_sl.models import Comment, JSONObject, MyArticle
 from lemonde_sl.tools import fix_image_urls, simplify_picture_tags
-from .parse_tools import extract_page_id, parse_style
-from .pdf_tools import PRESETS, make_pdf_name, build_pdf_html
 
-# debug
-from bs4 import BeautifulSoup
+from .parse_tools import parse_style
+from .pdf_tools import build_pdf_html, make_pdf_name
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +90,7 @@ class LeMondeBase(ABC):
         # Remove UI junk
         cls._remove_bloats(article_body)
 
-        return article_body.html
+        return article_body.html  # type: ignore[no-any-return,unused-ignore]
 
     @staticmethod
     def _make_payload(raw_html: str, email: str, password: str) -> dict[str, str]:
@@ -194,7 +190,7 @@ class LeMonde(LeMondeBase):
         r = self.client.get(self.LOGOUT_URL)
         print("✅ Logout:", r.status_code)
 
-    def fetch(self, url: str, mobile: bool = False) -> str:
+    def fetch(self, url: str) -> str:
         """Fetch an article (synchronous).
 
         Sends an authenticated GET request using ``httpx.Client`` and returns the
@@ -213,7 +209,7 @@ class LeMonde(LeMondeBase):
         resp = self.client.get(url)
         resp.raise_for_status()
         logger.info("webpage correctly fetched : %s", url)
-        return resp.text
+        return resp.text  # type: ignore[no-any-return,unused-ignore]
 
     def fetch_and_parse(self, url: str) -> str | None:
         """Fetch and parse an article (sync).
@@ -284,9 +280,9 @@ class LeMonde(LeMondeBase):
     def fetch_multiple_pdf(
         self,
         url: str,
+        matrix: list[str],
         email: str | None = None,
         password: str | None = None,
-        matrix: list[str] = [],
     ) -> list[MyArticle]:
         """
         Télécharge un article, le nettoie et génère 1 ou plusieurs PDF selon une matrice.
@@ -337,7 +333,6 @@ class LeMonde(LeMondeBase):
         url: str,
         email: str | None = None,
         password: str | None = None,
-        matrix: list[str] = [],
     ) -> list[MyArticle]:
         matrix = ["normal_light", "normal_dark", "mobile_light", "mobile_dark"]
         return self.fetch_multiple_pdf(url=url, email=email, password=password, matrix=matrix)
@@ -534,7 +529,7 @@ class LeMondeAsync(LeMondeBase):
         """
         resp = await self.client.get(url)
         resp.raise_for_status()
-        return resp.text
+        return resp.text  # type: ignore[no-any-return,unused-ignore]
 
     async def fetch_and_parse(self, url: str) -> str | None:
         """Fetch and parse a LM article (asynchronous).
@@ -606,14 +601,16 @@ class LeMondeAsync(LeMondeBase):
         logger.info("launching to_pdf in running loop")
         logger.info("to_pdf completed")
 
-        return await self.render_variant_pdf(article_body, name=output_path, mobile=mobile, dark=dark)
+        return await self.render_variant_pdf(
+            article_body, name=output_path, mobile=mobile, dark=dark
+        )
 
     async def fetch_multiple_pdf(
         self,
         url: str,
+        matrix: list[str],
         email: str | None = None,
         password: str | None = None,
-        matrix: list[str] = [],
     ) -> list[MyArticle]:
         """
         Télécharge un article, le nettoie et génère 1 ou plusieurs PDF selon une matrice.
@@ -655,7 +652,9 @@ class LeMondeAsync(LeMondeBase):
             mobile, dark = parse_style(style)
 
             name = make_pdf_name(url, mobile=mobile, dark=dark)
-            article = await self.render_variant_pdf(article_body, name=name, mobile=mobile, dark=dark)
+            article = await self.render_variant_pdf(
+                article_body, name=name, mobile=mobile, dark=dark
+            )
             my_articles.append(article)
         return my_articles
 
@@ -664,7 +663,6 @@ class LeMondeAsync(LeMondeBase):
         url: str,
         email: str | None = None,
         password: str | None = None,
-        matrix: list[str] = [],
     ) -> list[MyArticle]:
         matrix = ["normal_light", "normal_dark", "mobile_light", "mobile_dark"]
         return await self.fetch_multiple_pdf(url=url, email=email, password=password, matrix=matrix)

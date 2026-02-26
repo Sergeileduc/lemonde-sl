@@ -25,7 +25,7 @@ def pick_best_src(srcset: str, target_width: int = 664) -> str | None:
         return None
 
     # Choisir la largeur la plus proche
-    best = min(candidates, key=lambda x: abs(x[0] - target_width))
+    best = min(candidates, key=lambda x: abs(x[0] - target_width))  # type: ignore
     return best[1]
 
 
@@ -135,7 +135,7 @@ if __name__ == "__main__":
         https://img.lemde.fr/2026/02/25/0/0/5064/3373/1668/0/75/0/0e52036_ftp-1-6t4iezecnkyp-5287830-01-06.jpg 1668w,   
         https://img.lemde.fr/2026/02/25/0/0/5064/3373/1992/0/75/0/0e52036_ftp-1-6t4iezecnkyp-5287830-01-06.jpg 1992w,  
         https://img.lemde.fr/2026/02/25/0/0/5064/3373/2301/0/75/0/0e52036_ftp-1-6t4iezecnkyp-5287830-01-06.jpg 2301w,  
-        """
+        """  # noqa: E501, W291
 
     best = pick_best_src(srcset, target_width=650)
     print(best)
@@ -317,7 +317,7 @@ class="lazy-forecast"></section>   </footer>  </section>            <div class="
 data-url="idees" data-position="desktopFooter" data-service=""></div>  </section> </section>
         </body>
         </html>
-    """
+    """  # noqa: E501, W291
 
     from bs4 import BeautifulSoup
 

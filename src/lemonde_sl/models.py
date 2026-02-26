@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TypeAlias
 
 from rich.panel import Panel
 from rich.text import Text
@@ -35,6 +34,6 @@ class Comment:
 
 
 # JSON
-JSONType: TypeAlias = dict[str, "JSONType"] | list["JSONType"] | str | int | float | bool | None
-JSONObject: TypeAlias = dict[str, JSONType]
-JSONArray: TypeAlias = list[JSONType]
+JSONType = dict[str, "JSONType"] | list["JSONType"] | str | int | float | bool | None
+JSONObject = dict[str, JSONType]
+JSONArray = list[JSONType]
