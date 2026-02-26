@@ -8,10 +8,13 @@ from itertools import chain
 from pathlib import Path
 from platform import uname
 
+from invoke.context import Context
 from invoke.tasks import task
 
-# TASKS------------------------------------------------------------------------
+# CONST------------------------------------------------------------------------
+PROJECT = "lemonde-pdf"
 
+# TASKS------------------------------------------------------------------------
 
 @task
 def sync(c):
@@ -23,6 +26,7 @@ def sync(c):
 
 @task
 def lint(c):
+    print(type(c))
     c.run("ruff check .", echo=True)
     c.run("mypy", echo=True)
 
@@ -157,6 +161,20 @@ def doc(c):
     webbrowser.open(path.resolve().as_uri())
 
 
+@task
+def dockerbuild(c):
+    """Build docker."""
+    c.run(f"docker build -t {PROJECT} .")
+
+
+@task
+def dockerrun(c):
+    """Run docker."""
+    # command = f'docker run --rm -v "$(Get-Location):/app" --env-file .env {PROJECT}'
+    cwd = os.getcwd().replace("\\", "/")  # Docker aime les slashs
+    c.run(f'docker run --rm -v "{cwd}:/app" --env-file .env {PROJECT}')
+
+
 # UTILS -----------------------------------------------------------------------
 
 
@@ -195,7 +213,7 @@ def _venv_name(py_version: str) -> str:
     return f".venv{py_version.replace('.', '')}"
 
 
-def _find_python_executable(c, py: str) -> str:
+def _find_python_executable(c: Context, py: str) -> str:
     """
     Trouve un exécutable Python correspondant à la version demandée.
     Essaie dans cet ordre :
@@ -209,7 +227,7 @@ def _find_python_executable(c, py: str) -> str:
     # 1. python3.X
     exe = f"python{target}"
     try:
-        out = c.run(f"{exe} --version", hide=True).stdout
+        out = c.run(f"{exe} --version", hide=True).stdout  # type: ignore
         if target in out:
             return exe
     except Exception:
@@ -217,7 +235,7 @@ def _find_python_executable(c, py: str) -> str:
 
     # 2. py -3.X (Windows)
     try:
-        out = c.run(f"py -{target} --version", hide=True).stdout
+        out = c.run(f"py -{target} --version", hide=True).stdout  # type: ignore
         if target in out:
             return f"py -{target}"
     except Exception:
@@ -225,7 +243,7 @@ def _find_python_executable(c, py: str) -> str:
 
     # 3. python (si version correspond)
     try:
-        out = c.run("python --version", hide=True).stdout
+        out = c.run("python --version", hide=True).stdout  # type: ignore
         if target in out:
             return "python"
     except Exception:
