@@ -64,16 +64,18 @@ def build_pdf_html(
     """
 
     # Page format + spacing rules
+    # Page format + spacing rules
     if mobile:
-        page_size = "A6"
-        margin_mm = 7 if not dark else 0
-        padding_mm = 0 if not dark else 7
-        title_scale = 0.6  # réduit à 60%
-        legend_scale = 0.8
+        page_size = "100mm 2000mm"
+        margin_mm = 5 if not dark else 0
+        padding_mm = 0 if not dark else 5
+        title_scale = 0.6
+        legend_scale = 0.6
+
     else:
-        page_size = "A4"
-        margin_mm = 20 if not dark else 0
-        padding_mm = 0 if not dark else 20
+        page_size = "170mm 2500mm"
+        margin_mm = 15 if not dark else 0
+        padding_mm = 0 if not dark else 15
         title_scale = 1.0  # normal
         legend_scale = 1.0
 
