@@ -1,7 +1,11 @@
+from __future__ import annotations
+
 import logging
 import re
+from typing import TYPE_CHECKING
 
-from selectolax.parser import Node
+if TYPE_CHECKING:
+    from selectolax.parser import Node
 
 logger = logging.getLogger(__name__)
 

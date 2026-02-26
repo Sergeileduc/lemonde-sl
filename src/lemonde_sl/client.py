@@ -645,7 +645,7 @@ class LeMondeAsync(LeMondeBase):
         if not article_body:
             raise RuntimeError("Impossible de parser l'article")
 
-        my_articles = []
+        my_articles: list[MyArticle] = []
 
         # loop on the matrix of styles
         for style in matrix:

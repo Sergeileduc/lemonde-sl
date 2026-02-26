@@ -1,10 +1,14 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from datetime import datetime
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rich.panel import Panel
 from rich.text import Text
 
+if TYPE_CHECKING:
+    from datetime import datetime
+    from pathlib import Path
 
 @dataclass
 class MyArticle:
@@ -31,7 +35,7 @@ class Comment:
     created_at: datetime
     likes: int
     parent_id: str | None
-    replies: list["Comment"] = field(default_factory=list)
+    replies: list[Comment] = field(default_factory=list)
 
     def __rich__(self):
         title = f"- [bold red]{self.author}[/] ({self.created_at}) [{self.likes} likes]"
