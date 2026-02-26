@@ -17,11 +17,13 @@ URL2 = os.getenv("LM_SL_TEST_URL2") or ""
 def runsync():
     print("Version SYNC")
     with LeMonde() as lm:
-        # print(lm)
+        print(lm)
         # lm.fetch_pdf(url=URL1, email=email, password=password, mobile=True, dark=True)
         # matrix = ["normal_light", "normal_dark", "mobile_light", "mobile_dark"]
         # lm.fetch_multiple_pdf(url=URL1, email=email, password=password, matrix=matrix)
-        lm.fetch_all_pdf(url=URL1, email=email, password=password)
+        articles = lm.fetch_all_pdf(url=URL1, email=email, password=password)
+        for art in articles:
+            print(art)
         # id = lm.extract_page_id(URL1)
         # print(f"Extracted page ID: {id}")
         # json_data = lm.fetch_comments(page_id=id, page=1, limit=5)
@@ -45,7 +47,9 @@ async def runasync():
         # for article in articles:
         #     print(article.path, article.success, article.warning)
 
-        await lm.fetch_all_pdf(url=URL2, email=email, password=password)
+        articles = await lm.fetch_all_pdf(url=URL2, email=email, password=password)
+        for art in articles:
+            print(art)
 
 
 if __name__ == "__main__":

@@ -16,6 +16,12 @@ class MyArticle:
     def has_warning(self) -> bool:
         return self.warning is not None
 
+    def __rich__(self):
+        title = f"✅ {self.warning}" if self.success else f"❌ {self.warning}"
+        text = Text(str(self.path), style="cyan")
+        return Panel(text, title=title, title_align="left", border_style="green")
+
+
 
 @dataclass
 class Comment:
