@@ -124,7 +124,6 @@ def simplify_picture_tags(soup, target_width=664):
 
 
 if __name__ == "__main__":
-
     srcset = """
         https://img.lemde.fr/2026/02/25/0/0/5064/3373/320/0/75/0/0e52036_ftp-1-6t4iezecnkyp-5287830-01-06.jpg 320w,  
         https://img.lemde.fr/2026/02/25/0/0/5064/3373/556/0/75/0/0e52036_ftp-1-6t4iezecnkyp-5287830-01-06.jpg 556w,  
@@ -140,7 +139,6 @@ if __name__ == "__main__":
 
     best = pick_best_src(srcset, target_width=650)
     print(best)
-
 
     html = """
     <html>
@@ -322,6 +320,7 @@ data-url="idees" data-position="desktopFooter" data-service=""></div>  </section
     """
 
     from bs4 import BeautifulSoup
+
     soup = BeautifulSoup(html, features="lxml")
 
     simplify_picture_tags(soup, target_width=650)

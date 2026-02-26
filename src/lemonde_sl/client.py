@@ -9,7 +9,7 @@ from datetime import datetime
 from os import PathLike
 from pathlib import Path
 from typing import Self
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 import httpx
 from dotenv import load_dotenv
@@ -20,8 +20,10 @@ from selectolax.parser import HTMLParser, Node
 
 from weasyprint import CSS, HTML
 
-from lemonde_sl.models import MyArticle, JSONObject
+from lemonde_sl.models import Comment, MyArticle, JSONObject
 from lemonde_sl.tools import fix_image_urls, simplify_picture_tags
+from .parse_tools import extract_page_id, parse_style
+from .pdf_tools import PRESETS, make_pdf_name, build_pdf_html
 
 # debug
 from bs4 import BeautifulSoup
@@ -60,6 +62,7 @@ class LeMondeBase(ABC):
         "a.Header__offer",
         "noscript",
         ".services-carousel",
+        "div.multimedia-embed",
     ]
 
     # ---------------------------------------------------------
@@ -125,147 +128,6 @@ class LeMondeBase(ABC):
                     logger.info("Element %s decomposed", c)
             except AttributeError:
                 logger.info("FAILS to remove %s bloat in the article. Pass.", c)
-
-    @staticmethod
-    def make_pdf_name(url: str) -> str:
-        """Return a safe PDF filename derived from a LM article URL."""
-        path = urlparse(url).path
-        slug = path.rsplit("/", 1)[-1]
-        base, _ = os.path.splitext(slug)
-        return f"{base}.pdf"
-
-    @staticmethod
-    def _build_pdf_html(
-        fragment: str,
-        mobile: bool = False,
-        dark: bool = False,
-    ) -> tuple[str, str]:
-        """
-        Build a full HTML document and weasyprint options for rendering an article.
-
-        This function wraps a cleaned HTML fragment into a complete HTML document
-        and generates the appropriate weasyprint configuration depending on the
-        selected layout (mobile or desktop) and theme (light or dark).
-
-        Args:
-            fragment (str): Cleaned HTML content to insert into the <body>.
-            mobile (bool): If True, use a compact mobile layout (A6).
-            dark (bool): If True, apply a dark theme suitable for night reading.
-
-        Returns:
-            tuple[str, str]: A tuple containing:
-                - The full HTML document as a string.
-                - A str of Weazykit css.
-        """
-
-        # Page format + spacing rules
-        if mobile:
-            page_size = "A6"
-            margin_mm = 7 if not dark else 0
-            padding_mm = 0 if not dark else 7
-            title_scale = 0.6   # réduit à 60%
-            legend_scale = 0.8
-        else:
-            page_size = "A4"
-            margin_mm = 20 if not dark else 0
-            padding_mm = 0 if not dark else 20
-            title_scale = 1.0   # normal
-            legend_scale = 1.0
-
-
-        # CSS @page (équivalent des options weasyprint)
-        page_css = f"""
-        @page {{
-            size: {page_size};
-            margin: {margin_mm}mm;
-        }}
-        """
-
-        title_css = f"""
-        h1 {{
-            font-size: calc(2.5rem * {title_scale});
-            line-height: 1.2;
-        }}
-
-        h2 {{
-            font-size: calc(1.8rem * {title_scale});
-            line-height: 1.3;
-        }}
-
-        h3 {{
-            font-size: calc(1.4rem * {title_scale});
-            line-height: 1.3;
-        }}
-        .article__legend {{
-            font-size: calc(0.875rem * {legend_scale});
-            line-height: 1.3;
-        }}
-
-        """
-
-        # Theme CSS
-        if dark:
-            theme_css = f"""
-            html {{
-                background: #121212;
-            }}
-            body {{
-                background: transparent;
-                color: #e0e0e0;
-                margin: 0;
-                padding: {padding_mm}mm;
-                font-family: sans-serif;
-                font-size: 12pt;
-                line-height: 1.6;
-                box-sizing: border-box;
-            }}
-            a {{
-                color: #90caf9;
-            }}
-            img {{
-                filter: brightness(0.8) contrast(1.2);
-                max-width: 100%;
-                height: auto;
-            }}
-            """
-        else:
-            theme_css = f"""
-            body {{
-                font-family: sans-serif;
-                font-size: 12pt;
-                line-height: 1.6;
-                padding: {padding_mm}mm;
-            }}
-            img {{
-                max-width: 100%;
-                height: auto;
-            }}
-            """
-
-
-        # CSS final
-        css_string = page_css + title_css + theme_css
-
-        # HTML final
-        html = f"""
-        <html>
-        <head>
-            <meta charset="UTF-8">
-        </head>
-        <body>
-            {fragment}
-        </body>
-        </html>
-        """
-
-        return html.strip(), css_string.strip()
-
-    @staticmethod
-    def extract_page_id(url: str) -> str:
-        m = re.search(r"_(\d+)_\d+\.html$", url)
-        if not m:
-            raise ValueError("Impossible d'extraire le pageId depuis l'URL")
-        return m.group(1)
 
     @abstractmethod
     def to_pdf(self, *args, **kwargs):
@@ -412,30 +274,100 @@ class LeMonde(LeMondeBase):
         if email and password:
             self.login(email, password)
 
-        clean_html = self.fetch_and_parse(url=url)
-
-        if not clean_html:
+        article_body = self.fetch_and_parse(url=url)
+        if not article_body:
             raise RuntimeError("Impossible de parser l'article")
 
+        output_path = make_pdf_name(url, mobile=mobile, dark=dark)
+        return self.render_variant_pdf(article_body, name=output_path, mobile=mobile, dark=dark)
+
+    def fetch_multiple_pdf(
+        self,
+        url: str,
+        email: str | None = None,
+        password: str | None = None,
+        matrix: list[str] = [],
+    ) -> list[MyArticle]:
+        """
+        Télécharge un article, le nettoie et génère 1 ou plusieurs PDF selon une matrice.
+        Exemple de matrice : ["normal_light, "mobile_dark", "mobile_light"]
+
+        Cette méthode est une façade ergonomique qui enchaîne automatiquement :
+        1. Le login (si `email` et `password` sont fournis)
+        2. Le fetch de la page HTML
+        3. Le parsing / nettoyage
+        4. La génération du nom de plusieurs fichiers PDFs
+        5. L'export du/des PDF(s) sur disque
+
+        Args:
+            url (str): URL de l'article à télécharger.
+            email (str | None): Email utilisé pour le login. Si None, aucun login n'est effectué.
+            password (str | None): Mot de passe associé. Si None, aucun login n'est effectué.
+            matrix (list): liste des fichiers attendus (["normaldark", "mobilelight", etc])
+
+        Returns:
+            list[MyArticle]
+
+        Raises:
+            RuntimeError: Si l'article ne peut pas être récupéré ou nettoyé.
+            LoginError: Si le login échoue (si implémenté dans ta classe).
+            ValueError: Si l'URL est invalide.
+        """
+
+        if email and password:
+            self.login(email, password)
+
+        article_body = self.fetch_and_parse(url=url)
+        if not article_body:
+            raise RuntimeError("Impossible de parser l'article")
+
+        my_articles = []
+
+        # loop on the matrix of styles
+        for style in matrix:
+            mobile, dark = parse_style(style)
+
+            name = make_pdf_name(url, mobile=mobile, dark=dark)
+            article = self.render_variant_pdf(article_body, name=name, mobile=mobile, dark=dark)
+            my_articles.append(article)
+        return my_articles
+
+    def fetch_all_pdf(
+        self,
+        url: str,
+        email: str | None = None,
+        password: str | None = None,
+        matrix: list[str] = [],
+    ) -> list[MyArticle]:
+        matrix = ["normal_light", "normal_dark", "mobile_light", "mobile_dark"]
+        return self.fetch_multiple_pdf(url=url, email=email, password=password, matrix=matrix)
+
+    def render_variant_pdf(
+        self, article_body: str, name: str, mobile: bool = False, dark: bool = False
+    ) -> MyArticle:
+        """ "Makes a pdf from article_body.
+        Should be called after login and after fetch_and_parse.
+        """
         # Clean images with BeautifulSoup before giving to PDF generation
-        soup = BeautifulSoup(clean_html, "lxml")
+        soup = BeautifulSoup(article_body, "lxml")
         target_size = 200 if mobile else 550
         simplify_picture_tags(soup, target_width=target_size)
         fix_image_urls(soup, target_width=target_size)
         clean_html = str(soup)
 
-        # Making PDF !
-        full_html, pdf_options = self._build_pdf_html(
+        # Making HTML ready for pdf
+        full_html, pdf_options = build_pdf_html(
             fragment=clean_html,
             mobile=mobile,
             dark=dark,
         )
-        output_path = self.make_pdf_name(url)
-        success, warning = self.to_pdf(full_html, output_path, pdf_options)
+
+        # Making PDF
+        success, warning = self.to_pdf(full_html, name, pdf_options)
 
         # return success, warning, output_path
         return MyArticle(
-            path=Path(output_path),
+            path=Path(name),
             success=success,
             warning=warning,
         )
@@ -664,39 +596,99 @@ class LeMondeAsync(LeMondeBase):
             await self.login(email, password)
 
         # 2) fetch + parse
-        clean_html = await self.fetch_and_parse(url)
-        if not clean_html:
+        article_body = await self.fetch_and_parse(url)
+        if not article_body:
             raise RuntimeError("Impossible de parser l'article")
 
+        output_path = make_pdf_name(url, mobile=mobile, dark=dark)
+
+        # generate PDF
+        logger.info("launching to_pdf in running loop")
+        logger.info("to_pdf completed")
+
+        return await self.render_variant_pdf(article_body, name=output_path, mobile=mobile, dark=dark)
+
+
+    async def render_variant_pdf(
+        self, article_body: str, name: str, mobile: bool = False, dark: bool = False
+    ) -> MyArticle:
+        """ "Makes a pdf from article_body.
+        Should be called after login and after fetch_and_parse.
+        """
         # Clean images with BeautifulSoup before giving to PDF generation
-        soup = BeautifulSoup(clean_html, "lxml")
+        soup = BeautifulSoup(article_body, "lxml")
         target_size = 200 if mobile else 550
         simplify_picture_tags(soup, target_width=target_size)
         fix_image_urls(soup, target_width=target_size)
         clean_html = str(soup)
 
-        # Making PDF
-        full_html, pdf_options = self._build_pdf_html(
+        # Making HTML ready for pdf
+        full_html, pdf_options = build_pdf_html(
             fragment=clean_html,
             mobile=mobile,
             dark=dark,
         )
 
-        # 3) compute filename
-        output_path = self.make_pdf_name(url)
+        # Making PDF
+        success, warning = await self.to_pdf(full_html, name, pdf_options)
 
-        # generate PDF
-        logger.info("launching to_pdf in running loop")
-        success, warning = await self.to_pdf(
-            html=full_html, output_path=output_path, css=pdf_options
-        )
-        logger.info("to_pdf completed")
-
+        # return success, warning, output_path
         return MyArticle(
-            path=Path(output_path),
+            path=Path(name),
             success=success,
             warning=warning,
         )
+
+    async def fetch_multiple_pdf(
+        self,
+        url: str,
+        email: str | None = None,
+        password: str | None = None,
+        matrix: list[str] = [],
+    ) -> list[MyArticle]:
+        """
+        Télécharge un article, le nettoie et génère 1 ou plusieurs PDF selon une matrice.
+        Exemple de matrice : ["normal_light, "mobile_dark", "mobile_light"]
+
+        Cette méthode est une façade ergonomique qui enchaîne automatiquement :
+        1. Le login (si `email` et `password` sont fournis)
+        2. Le fetch de la page HTML
+        3. Le parsing / nettoyage
+        4. La génération du nom de plusieurs fichiers PDFs
+        5. L'export du/des PDF(s) sur disque
+
+        Args:
+            url (str): URL de l'article à télécharger.
+            email (str | None): Email utilisé pour le login. Si None, aucun login n'est effectué.
+            password (str | None): Mot de passe associé. Si None, aucun login n'est effectué.
+            matrix (list): liste des fichiers attendus (["normaldark", "mobilelight", etc])
+
+        Returns:
+            list[MyArticle]
+
+        Raises:
+            RuntimeError: Si l'article ne peut pas être récupéré ou nettoyé.
+            LoginError: Si le login échoue (si implémenté dans ta classe).
+            ValueError: Si l'URL est invalide.
+        """
+
+        if email and password:
+            await self.login(email, password)
+
+        article_body = await self.fetch_and_parse(url=url)
+        if not article_body:
+            raise RuntimeError("Impossible de parser l'article")
+
+        my_articles = []
+
+        # loop on the matrix of styles
+        for style in matrix:
+            mobile, dark = parse_style(style)
+
+            name = make_pdf_name(url, mobile=mobile, dark=dark)
+            article = await self.render_variant_pdf(article_body, name=name, mobile=mobile, dark=dark)
+            my_articles.append(article)
+        return my_articles
 
     async def logout(self) -> None:
         """Log out from the LM session (asynchronous).
@@ -743,10 +735,7 @@ class LeMondeAsync(LeMondeBase):
         logger.info("Starting weasyprint")
         try:
             await asyncio.to_thread(
-                lambda: HTML(string=html).write_pdf(
-                    output_path,
-                    stylesheets=[CSS(string=css)]
-                )
+                lambda: HTML(string=html).write_pdf(output_path, stylesheets=[CSS(string=css)])
             )
             return True, None
 
@@ -766,10 +755,7 @@ class LeMondeAsync(LeMondeBase):
 
             try:
                 await asyncio.to_thread(
-                    lambda: HTML(string=html).write_pdf(
-                        output_path,
-                        stylesheets=[CSS(string=css)]
-                    )
+                    lambda: HTML(string=html).write_pdf(output_path, stylesheets=[CSS(string=css)])
                 )
                 return (
                     True,
@@ -816,22 +802,6 @@ class LeMondeAsync(LeMondeBase):
         resp = await self.client.get(url)
         resp.raise_for_status()
         return resp.json()  # type: ignore
-
-
-@dataclass
-class Comment:
-    id: str
-    author: str
-    content: str
-    created_at: datetime
-    likes: int
-    parent_id: str | None
-    replies: list["Comment"] = field(default_factory=list)
-
-    def __rich__(self):
-        title = f"- [bold red]{self.author}[/] ({self.created_at}) [{self.likes} likes]"
-        text = Text(self.content, style="cyan")
-        return Panel(text, title=title, title_align="left", border_style="green")
 
 
 def parse_comment(data: dict) -> Comment:
