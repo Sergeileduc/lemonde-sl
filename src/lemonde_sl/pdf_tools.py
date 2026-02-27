@@ -139,7 +139,6 @@ def build_pdf_html(
             color: #90caf9;
         }}
         img {{
-            filter: brightness(0.8) contrast(1.2);
             max-width: 100%;
             height: auto;
         }}
