@@ -397,14 +397,14 @@ class LeMonde(LeMondeBase):
                 - optional warning message (str | None)
         """
 
-        logger.info("Starting weasypring")
+        logger.info("Starting weasyprint")
 
         try:
             HTML(string=html).write_pdf(output_path, stylesheets=[CSS(string=css)])
             return True, None
 
         except OSError as e:
-            logger.error("weasypring failed on first attempt")
+            logger.error("weasyprint failed on first attempt")
             logger.error(e)
 
             if not remove_multimedia:
@@ -766,7 +766,7 @@ class LeMondeAsync(LeMondeBase):
                 )
                 return (
                     True,
-                    "Multimedia content was removed because wkhtmltopdf could not render it.",
+                    "Multimedia content was removed because weasyprint could not render it.",
                 )
             except Exception as e2:
                 logger.error("Second attempt failed as well")

@@ -69,7 +69,7 @@ def build_pdf_html(
         page_size = "100mm 2000mm"
         margin_mm = 5 if not dark else 0
         padding_mm = 0 if not dark else 5
-        title_scale = 0.6
+        title_scale = 0.7
         legend_scale = 0.6
 
     else:
@@ -78,6 +78,16 @@ def build_pdf_html(
         padding_mm = 0 if not dark else 15
         title_scale = 1.0  # normal
         legend_scale = 1.0
+    
+    base_h1 = 1.4  # rem
+    base_h2 = 1.3  # rem
+    base_h3 = 1.2  # rem
+    base_legend = 0.875  # rem
+
+    h1_size = f"{base_h1 * title_scale}rem"
+    h2_size = f"{base_h2 * title_scale}rem"
+    h3_size = f"{base_h3 * title_scale}rem"
+    legend_size = f"{base_legend * legend_scale}rem"
 
     # CSS @page (équivalent des options weasyprint)
     page_css = f"""
@@ -89,21 +99,21 @@ def build_pdf_html(
 
     title_css = f"""
     h1 {{
-        font-size: calc(2.5rem * {title_scale});
+        font-size: {h1_size};
         line-height: 1.2;
     }}
 
     h2 {{
-        font-size: calc(1.8rem * {title_scale});
+        font-size: {h2_size};
         line-height: 1.3;
     }}
 
     h3 {{
-        font-size: calc(1.4rem * {title_scale});
+        font-size: {h3_size};
         line-height: 1.3;
     }}
     .article__legend {{
-        font-size: calc(0.875rem * {legend_scale});
+        font-size: {legend_size};
         line-height: 1.3;
     }}
 
