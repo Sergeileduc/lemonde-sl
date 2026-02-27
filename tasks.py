@@ -59,7 +59,8 @@ def cleantest(c):
     p = Path(".")
     genpyc = (i for i in p.rglob("*.pyc") if not str(i.parent).startswith(exclude))
     genpyo = (i for i in p.rglob("*.pyo") if not str(i.parent).startswith(exclude))
-    artifacts = chain(genpyc, genpyo)
+    genpdf = (i for i in p.rglob("*.pdf") if not str(i.parent).startswith(exclude))
+    artifacts = chain(genpyc, genpyo, genpdf)
     for art in artifacts:
         os.remove(art)
 
