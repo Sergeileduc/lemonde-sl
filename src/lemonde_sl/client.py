@@ -9,17 +9,22 @@ from datetime import datetime
 from os import PathLike
 from pathlib import Path
 from typing import Self
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 import httpx
 import pdfkit
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from rich import print
 from rich.panel import Panel
 from rich.text import Text
-from selectolax.lexbor import LexborHTMLParser, LexborNode
+from selectolax.parser import HTMLParser, Node
 
 from lemonde_sl.models import MyArticle
+
+from .parse_tools import parse_style
+from .pdf_tools import build_pdf_html, make_pdf_name
+from .tools import fix_image_urls, simplify_picture_tags
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +58,9 @@ class LeMondeBase(ABC):
         "section.inread",
         "div.catcher__favorite",
         "a.Header__offer",
+        "noscript",
+        ".services-carousel",
+        "div.multimedia-embed",
     ]
 
     # ---------------------------------------------------------
@@ -73,25 +81,22 @@ class LeMondeBase(ABC):
             str|None: Cleaned HTML fragment containing the article body, or ``None`` if the
             article structure cannot be found.
         """
+        # 1) Selectolax : extraction + nettoyage structurel
+        parser = HTMLParser(html)
 
-        parser = LexborHTMLParser(html)
         article_body = parser.css_first("main > .article--content")
         if not article_body:
             logger.warning("Article body not found in HTML")
             return None
 
-        # 1) Remove UI junk
+        # Remove UI junk
         cls._remove_bloats(article_body)
 
-        # 2) Fix lazy-loaded images BEFORE converting to HTML
-        cls._fix_image_urls(article_body)
-
-        # 3) Return cleaned HTML
-        return article_body.html
+        return article_body.html  # type: ignore[no-any-return,unused-ignore]
 
     @staticmethod
     def _make_payload(raw_html: str, email: str, password: str) -> dict[str, str]:
-        parser = LexborHTMLParser(raw_html)
+        parser = HTMLParser(raw_html)
 
         form = parser.css_first('form[method="post"]')
         if not form:
@@ -111,124 +116,16 @@ class LeMondeBase(ABC):
         return payload
 
     @classmethod
-    def _remove_bloats(cls, article: LexborNode) -> None:
+    def _remove_bloats(cls, article: Node) -> None:
         "Remove some bloats in the article soup."
         for c in cls.CSS_BLOATS:
             try:
                 list_elements = article.css(c)
                 for elem in list_elements:
                     elem.decompose()  # remove some bloats
-                    logger.info("Element %s decomposed", c)
+                    logger.info("🧹 Element %s decomposed", c)
             except AttributeError:
-                logger.info("FAILS to remove %s bloat in the article. Pass.", c)
-
-    @staticmethod
-    def make_pdf_name(url: str) -> str:
-        """Return a safe PDF filename derived from a LM article URL."""
-        path = urlparse(url).path
-        slug = path.rsplit("/", 1)[-1]
-        base, _ = os.path.splitext(slug)
-        return f"{base}.pdf"
-
-    @staticmethod
-    def _build_pdf_html(
-        fragment: str,
-        mobile: bool = False,
-        dark: bool = False,
-    ) -> tuple[str, dict[str, str | list | None]]:
-        """
-        Build a full HTML document and PDFKit options for rendering an article.
-
-        This function wraps a cleaned HTML fragment into a complete HTML document
-        and generates the appropriate PDFKit configuration depending on the
-        selected layout (mobile or desktop) and theme (light or dark).
-
-        Args:
-            fragment (str): Cleaned HTML content to insert into the <body>.
-            mobile (bool): If True, use a compact mobile layout (A6).
-            dark (bool): If True, apply a dark theme suitable for night reading.
-
-        Returns:
-            tuple[str, dict]: A tuple containing:
-                - The full HTML document as a string.
-                - A dictionary of PDFKit options.
-        """
-
-        # Page format + spacing rules
-        if mobile:
-            page_size = "A6"
-            margin_mm = 7 if not dark else 0
-            padding_mm = 0 if not dark else 7
-        else:
-            page_size = "A4"
-            margin_mm = 20 if not dark else 0
-            padding_mm = 0 if not dark else 20
-
-        # PDFKit options
-        options = {
-            "page-size": page_size,
-            "margin-top": f"{margin_mm}mm",
-            "margin-right": f"{margin_mm}mm",
-            "margin-bottom": f"{margin_mm}mm",
-            "margin-left": f"{margin_mm}mm",
-            "encoding": "UTF-8",
-            "no-outline": None,
-            "custom-header": [("Accept-Encoding", "gzip")],
-            "enable-local-file-access": "",
-        }
-
-        # Theme CSS
-        if dark:
-            css = f"""
-            <style>
-                html {{
-                    background: #121212;
-                }}
-                body {{
-                    background: transparent;
-                    color: #e0e0e0;
-                    margin: 0;
-                    padding: {padding_mm}mm;
-                    font-family: sans-serif;
-                    font-size: 12pt;
-                    line-height: 1.6;
-                    box-sizing: border-box;
-                }}
-                a {{
-                    color: #90caf9;
-                }}
-                img {{
-                    filter: brightness(0.8) contrast(1.2);
-                    max-width: 100%;
-                    height: auto;
-                }}
-            </style>
-            """
-        else:
-            css = """
-            <style>
-                body {
-                    font-family: sans-serif;
-                    font-size: 12pt;
-                    line-height: 1.6;
-                }
-            </style>
-            """
-
-        # Final HTML
-        html = f"""
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            {css}
-        </head>
-        <body>
-            {fragment}
-        </body>
-        </html>
-        """
-
-        return html.strip(), options
+                logger.info("⚠️ FAILS to remove %s bloat in the article. Pass.", c)
 
     @staticmethod
     def extract_page_id(url: str) -> str:
@@ -236,43 +133,6 @@ class LeMondeBase(ABC):
         if not m:
             raise ValueError("Impossible d'extraire le pageId depuis l'URL")
         return m.group(1)
-
-    @staticmethod
-    def _fix_image_urls(article: LexborNode) -> None:
-        """
-        Normalize image URLs in an article by resolving lazy-loaded attributes.
-
-        This function scans all <img> elements in the provided HTML tree and ensures
-        that each image has a valid ``src`` attribute. Many news websites, including
-        Le Monde, use lazy‑loading techniques where the actual image URL is stored
-        in attributes such as ``data-srcset`` or ``data-src``. These attributes are
-        not interpreted by PDF generators (e.g., wkhtmltopdf), which results in
-        missing images in the final output.
-
-        The function extracts the most appropriate image URL from ``data-srcset``—
-        typically the "664w" or "1x" variant—and assigns it to ``src``. If
-        ``data-srcset`` is not available, it falls back to ``data-src``.
-
-        Args:
-            tree (LexborNode): A parsed HTML document or subtree from selectolax.
-
-        Returns:
-            None: The function mutates the HTML tree in place.
-        """
-        for img in article.css("img"):
-            # 1) data-srcset → choisir la meilleure image
-            if img.attributes.get("data-srcset"):
-                srcset = img.attributes["data-srcset"].split(",")
-                # On prend la première image "large" ou "1x"
-                for candidate in srcset:
-                    if "664w" in candidate or "1x" in candidate:
-                        url = candidate.strip().split(" ")[0]
-                        img.attributes["src"] = url
-                        break
-
-            # 2) fallback : data-src
-            elif img.attributes.get("data-src"):
-                img.attributes["src"] = img.attributes["data-src"]
 
     @abstractmethod
     def to_pdf(self, *args, **kwargs):
@@ -320,10 +180,10 @@ class LeMonde(LeMondeBase):
         resp2.raise_for_status()
         time.sleep(0.5)
         if "lmd_a_s" in self.client.cookies:
-            print("✅ Login LM OK — cookie premium présent")
+            logger.info("✅ Login LM OK — cookie premium présent")
             return True
         else:
-            print("❌ Login LM FAIL — cookie premium absent")
+            logger.info("❌ Login LM FAIL — cookie premium absent")
             return False
 
     def logout(self) -> None:
@@ -336,7 +196,7 @@ class LeMonde(LeMondeBase):
             httpx.HTTPStatusError: If the logout request fails.
         """
         r = self.client.get(self.LOGOUT_URL)
-        print("✅ Logout:", r.status_code)
+        logger.info("Logout: %s", r.status_code)
 
     def fetch(self, url: str) -> str:
         """Fetch an article (synchronous).
@@ -356,7 +216,7 @@ class LeMonde(LeMondeBase):
         """
         resp = self.client.get(url)
         resp.raise_for_status()
-        logger.info("webpage correctly fetched : %s", url)
+        logger.info("✅ webpage correctly fetched : %s", url)
         return resp.text
 
     def fetch_and_parse(self, url: str) -> str | None:
@@ -418,20 +278,99 @@ class LeMonde(LeMondeBase):
         if email and password:
             self.login(email, password)
 
-        clean_html = self.fetch_and_parse(url)
-        if not clean_html:
+        article_body = self.fetch_and_parse(url=url)
+        if not article_body:
             raise RuntimeError("Impossible de parser l'article")
-        full_html, pdf_options = self._build_pdf_html(
+
+        output_path = make_pdf_name(url, mobile=mobile, dark=dark)
+        return self.render_variant_pdf(article_body, name=output_path, mobile=mobile, dark=dark)
+
+    def fetch_multiple_pdf(
+        self,
+        url: str,
+        matrix: list[str],
+        email: str | None = None,
+        password: str | None = None,
+    ) -> list[MyArticle]:
+        """
+        Télécharge un article, le nettoie et génère 1 ou plusieurs PDF selon une matrice.
+        Exemple de matrice : ["normal_light, "mobile_dark", "mobile_light"]
+
+        Cette méthode est une façade ergonomique qui enchaîne automatiquement :
+        1. Le login (si `email` et `password` sont fournis)
+        2. Le fetch de la page HTML
+        3. Le parsing / nettoyage
+        4. La génération du nom de plusieurs fichiers PDFs
+        5. L'export du/des PDF(s) sur disque
+
+        Args:
+            url (str): URL de l'article à télécharger.
+            email (str | None): Email utilisé pour le login. Si None, aucun login n'est effectué.
+            password (str | None): Mot de passe associé. Si None, aucun login n'est effectué.
+            matrix (list): liste des fichiers attendus (["normaldark", "mobilelight", etc])
+
+        Returns:
+            list[MyArticle]
+
+        Raises:
+            RuntimeError: Si l'article ne peut pas être récupéré ou nettoyé.
+            LoginError: Si le login échoue (si implémenté dans ta classe).
+            ValueError: Si l'URL est invalide.
+        """
+
+        if email and password:
+            self.login(email, password)
+
+        article_body = self.fetch_and_parse(url=url)
+        if not article_body:
+            raise RuntimeError("Impossible de parser l'article")
+
+        my_articles = []
+
+        # loop on the matrix of styles
+        for style in matrix:
+            mobile, dark = parse_style(style)
+
+            name = make_pdf_name(url, mobile=mobile, dark=dark)
+            article = self.render_variant_pdf(article_body, name=name, mobile=mobile, dark=dark)
+            my_articles.append(article)
+        return my_articles
+
+    def fetch_all_pdf(
+        self,
+        url: str,
+        email: str | None = None,
+        password: str | None = None,
+    ) -> list[MyArticle]:
+        matrix = ["normal_light", "normal_dark", "mobile_light", "mobile_dark"]
+        return self.fetch_multiple_pdf(url=url, email=email, password=password, matrix=matrix)
+
+    def render_variant_pdf(
+        self, article_body: str, name: str, mobile: bool = False, dark: bool = False
+    ) -> MyArticle:
+        """ "Makes a pdf from article_body.
+        Should be called after login and after fetch_and_parse.
+        """
+        # Clean images with BeautifulSoup before giving to PDF generation
+        soup = BeautifulSoup(article_body, "html.parser")
+        target_size = 200 if mobile else 550
+        simplify_picture_tags(soup, target_width=target_size)
+        fix_image_urls(soup, target_width=target_size)
+        clean_html = str(soup)
+        # Making HTML ready for pdffix_image_urls
+        logger.info("📰 Rendering variant PDF with mobile= %s and dark= %s", mobile, dark)
+        full_html, pdf_options = build_pdf_html(
             fragment=clean_html,
             mobile=mobile,
             dark=dark,
         )
-        output_path = self.make_pdf_name(url)
-        success, warning = self.to_pdf(full_html, output_path, pdf_options)
+
+        # Making PDF
+        success, warning = self.to_pdf(full_html, name, pdf_options)
 
         # return success, warning, output_path
         return MyArticle(
-            path=Path(output_path),
+            path=Path(name),
             success=success,
             warning=warning,
         )
@@ -440,7 +379,7 @@ class LeMonde(LeMondeBase):
     def to_pdf(
         html: str,
         output_path: str | PathLike[str],
-        options: dict[str, str | list | None],
+        options: dict[str, str | list[tuple[str, str]] | None],
         remove_multimedia: bool = True,
     ) -> tuple[bool, str | None]:
         """
@@ -466,13 +405,13 @@ class LeMonde(LeMondeBase):
                 - optional warning message (str | None)
         """
 
-        logger.info("Starting pdfkit")
+        logger.info("📰 Starting pdfkit")
         try:
             pdfkit.from_string(html, output_path=output_path, options=options)
             return True, None
 
         except OSError as e:
-            logger.error("wkhtmltopdf failed on first attempt")
+            logger.error("weasyprint failed on first attempt")
             logger.error(e)
 
             if not remove_multimedia:
@@ -481,7 +420,7 @@ class LeMonde(LeMondeBase):
             logger.warning("Retrying after removing multimedia embeds")
 
             # Remove multimedia blocks
-            cleaned_html = LexborHTMLParser(html)
+            cleaned_html = HTMLParser(html)
             for node in cleaned_html.css("div.multimedia-embed"):
                 node.decompose()
 
@@ -537,7 +476,7 @@ class LeMonde(LeMondeBase):
         )
         resp = self.client.get(url)
         resp.raise_for_status()
-        return resp.json()
+        return resp.json()  # type: ignore[no-any-return]
 
 
 class LeMondeAsync(LeMondeBase):
@@ -580,6 +519,18 @@ class LeMondeAsync(LeMondeBase):
         else:
             print("❌ Login LM FAIL — cookie premium absent")
         await asyncio.sleep(0.5)
+
+    async def logout(self) -> None:
+        """Log out from the LM session (asynchronous).
+
+        Sends a GET request to the logout endpoint. This invalidates premium cookies
+        and ends the authenticated session.
+
+        Raises:
+            httpx.HTTPStatusError: If the logout request fails.
+        """
+        r = await self.client.get(self.LOGOUT_URL)
+        print("✅ Logout:", r.status_code)
 
     async def fetch(self, url: str) -> str:
         """Fetch a LM article (asynchronous).
@@ -665,17 +616,17 @@ class LeMondeAsync(LeMondeBase):
         if not clean_html:
             raise RuntimeError("Impossible de parser l'article")
 
-        full_html, pdf_options = self._build_pdf_html(
+        full_html, pdf_options = build_pdf_html(
             fragment=clean_html,
             mobile=mobile,
             dark=dark,
         )
 
         # 3) compute filename
-        output_path = self.make_pdf_name(url)
+        output_path = make_pdf_name(url, mobile=mobile, dark=dark)
 
         # generate PDF
-        logger.info("launching to_pdf in running loop")
+        logger.info("⚙️ Launching to_pdf in running loop")
         success, warning = await self.to_pdf(
             html=full_html, output_path=output_path, options=pdf_options
         )
@@ -687,17 +638,97 @@ class LeMondeAsync(LeMondeBase):
             warning=warning,
         )
 
-    async def logout(self) -> None:
-        """Log out from the LM session (asynchronous).
+    async def fetch_multiple_pdf(
+        self,
+        url: str,
+        matrix: list[str],
+        email: str | None = None,
+        password: str | None = None,
+    ) -> list[MyArticle]:
+        """
+        Télécharge un article, le nettoie et génère 1 ou plusieurs PDF selon une matrice.
+        Exemple de matrice : ["normal_light, "mobile_dark", "mobile_light"]
 
-        Sends a GET request to the logout endpoint. This invalidates premium cookies
-        and ends the authenticated session.
+        Cette méthode est une façade ergonomique qui enchaîne automatiquement :
+        1. Le login (si `email` et `password` sont fournis)
+        2. Le fetch de la page HTML
+        3. Le parsing / nettoyage
+        4. La génération du nom de plusieurs fichiers PDFs
+        5. L'export du/des PDF(s) sur disque
+
+        Args:
+            url (str): URL de l'article à télécharger.
+            email (str | None): Email utilisé pour le login. Si None, aucun login n'est effectué.
+            password (str | None): Mot de passe associé. Si None, aucun login n'est effectué.
+            matrix (list): liste des fichiers attendus (["normaldark", "mobilelight", etc])
+
+        Returns:
+            list[MyArticle]
 
         Raises:
-            httpx.HTTPStatusError: If the logout request fails.
+            RuntimeError: Si l'article ne peut pas être récupéré ou nettoyé.
+            LoginError: Si le login échoue (si implémenté dans ta classe).
+            ValueError: Si l'URL est invalide.
         """
-        r = await self.client.get(self.LOGOUT_URL)
-        print("✅ Logout:", r.status_code)
+
+        if email and password:
+            await self.login(email, password)
+
+        article_body = await self.fetch_and_parse(url=url)
+        if not article_body:
+            raise RuntimeError("Impossible de parser l'article")
+
+        my_articles = []
+
+        # loop on the matrix of styles
+        for style in matrix:
+            mobile, dark = parse_style(style)
+
+            name = make_pdf_name(url, mobile=mobile, dark=dark)
+            article = await self.render_variant_pdf(
+                article_body, name=name, mobile=mobile, dark=dark
+            )
+            my_articles.append(article)
+        return my_articles
+
+    async def fetch_all_pdf(
+        self,
+        url: str,
+        email: str | None = None,
+        password: str | None = None,
+    ) -> list[MyArticle]:
+        matrix = ["normal_light", "normal_dark", "mobile_light", "mobile_dark"]
+        return await self.fetch_multiple_pdf(url=url, email=email, password=password, matrix=matrix)
+
+    async def render_variant_pdf(
+        self, article_body: str, name: str, mobile: bool = False, dark: bool = False
+    ) -> MyArticle:
+        """ "Makes a pdf from article_body.
+        Should be called after login and after fetch_and_parse.
+        """
+        # Clean images with BeautifulSoup before giving to PDF generation
+        soup = BeautifulSoup(article_body, "html.parser")
+        target_size = 200 if mobile else 550
+        simplify_picture_tags(soup, target_width=target_size)
+        fix_image_urls(soup, target_width=target_size)
+        clean_html = str(soup)
+        # Making HTML ready for pdffix_image_urls
+        logger.info("📰 Rendering variant PDF with mobile= %s and dark= %s", mobile, dark)
+        full_html, pdf_options = build_pdf_html(
+            fragment=clean_html,
+            mobile=mobile,
+            dark=dark,
+        )
+
+        # Making PDF
+        success, warning = await self.to_pdf(full_html, name, pdf_options)
+
+        # return success, warning, output_path
+        return MyArticle(
+            path=Path(name),
+            success=success,
+            warning=warning,
+        )
 
     @staticmethod
     async def to_pdf(
@@ -729,22 +760,22 @@ class LeMondeAsync(LeMondeBase):
                 - optional warning message (str | None)
         """
 
-        logger.info("Starting pdfkit")
+        logger.info("📰 Starting pdfkit")
         try:
             await asyncio.to_thread(pdfkit.from_string, html, output_path, options=options)
             return True, None
 
         except OSError as e:
-            logger.error("wkhtmltopdf failed on first attempt")
+            logger.error("❌ wkhtmltopdf failed on first attempt")
             logger.error(e)
 
             if not remove_multimedia:
                 raise
 
-            logger.warning("Retrying after removing multimedia embeds")
+            logger.warning("⚠️ Retrying after removing multimedia embeds")
 
             # Remove multimedia blocks
-            cleaned_html = LexborHTMLParser(html)
+            cleaned_html = HTMLParser(html)
             for node in cleaned_html.css("div.multimedia-embed"):
                 node.decompose()
 
@@ -794,7 +825,7 @@ class LeMondeAsync(LeMondeBase):
         )
         resp = await self.client.get(url)
         resp.raise_for_status()
-        return resp.json()
+        return resp.json()  # type: ignore[no-any-return]
 
 
 @dataclass

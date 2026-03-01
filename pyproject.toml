@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lemonde-sl"
-version = "0.1.0"
+version = "2.2.1+wkhtml"
 description = "A clean, modern Python package using uv, ruff, invoke, and strict tooling."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -17,10 +17,11 @@ requires-python = ">=3.12"
 
 # Dépendances runtime (si ton package en a)
 dependencies = [
-    "dotenv",
+    "python-dotenv",
     "rich",
     "httpx",
     "selectolax",
+    "bs4",
     "pdfkit",
 ]
 
