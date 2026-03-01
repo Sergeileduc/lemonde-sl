@@ -344,7 +344,7 @@ class LeMonde(LeMondeBase):
         Should be called after login and after fetch_and_parse.
         """
         # Clean images with BeautifulSoup before giving to PDF generation
-        soup = BeautifulSoup(article_body, "lxml")
+        soup = BeautifulSoup(article_body, "html.parser")
         target_size = 200 if mobile else 550
         simplify_picture_tags(soup, target_width=target_size)
         fix_image_urls(soup, target_width=target_size)
@@ -674,7 +674,7 @@ class LeMondeAsync(LeMondeBase):
         Should be called after login and after fetch_and_parse.
         """
         # Clean images with BeautifulSoup before giving to PDF generation
-        soup = BeautifulSoup(article_body, "lxml")
+        soup = BeautifulSoup(article_body, "html.parser")
         target_size = 200 if mobile else 550
         simplify_picture_tags(soup, target_width=target_size)
         fix_image_urls(soup, target_width=target_size)

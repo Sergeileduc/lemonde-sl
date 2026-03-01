@@ -321,7 +321,7 @@ data-url="idees" data-position="desktopFooter" data-service=""></div>  </section
 
     from bs4 import BeautifulSoup
 
-    soup = BeautifulSoup(html, features="lxml")
+    soup = BeautifulSoup(html, features="html.parser")
 
     simplify_picture_tags(soup, target_width=650)
 

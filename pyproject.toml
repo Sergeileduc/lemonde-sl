@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lemonde-sl"
-version = "2.2.0"
+version = "2.2.1"
 description = "A clean, modern Python package using uv, ruff, invoke, and strict tooling."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -23,7 +23,6 @@ dependencies = [
     "selectolax",
     "weasyprint",
     "bs4",
-    "lxml",
 ]
 
 # Classifiers PyPI (bonne pratique)
