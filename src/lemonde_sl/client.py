@@ -49,18 +49,22 @@ class LeMondeBase(ABC):
     # Bloats in HTML
     CSS_BLOATS = [
         ".meta__social",
+        ".services-carousel",
+        "a.Header__offer",
+        "aside.aside__iso.old__aside",
+        "div.catcher__favorite",
+        "div.multimedia-embed",
+        "noscript",
+        "section.article__reactions",
+        "section.article__siblings",
+        "section.js-portfolio-controls",
+        "section.js-portfolio-fs",
+        "section.js-portfolio-pagination",
+        "section.portfolio__fs-open-container",
+        "section.friend",
+        "section.inread",
         "ul.breadcrumb",
         "ul.ds-breadcrumb",
-        "section.article__reactions",
-        "section.friend",
-        "section.article__siblings",
-        "aside.aside__iso.old__aside",
-        "section.inread",
-        "div.catcher__favorite",
-        "a.Header__offer",
-        "noscript",
-        ".services-carousel",
-        "div.multimedia-embed",
     ]
 
     # ---------------------------------------------------------
@@ -123,9 +127,9 @@ class LeMondeBase(ABC):
                 list_elements = article.css(c)
                 for elem in list_elements:
                     elem.decompose()  # remove some bloats
-                    logger.info("🧹 Element %s decomposed", c)
+                    logger.debug("🧹 Element %s decomposed", c)
             except AttributeError:
-                logger.info("⚠️ FAILS to remove %s bloat in the article. Pass.", c)
+                logger.warning("⚠️ FAILS to remove %s bloat in the article. Pass.", c)
 
     @staticmethod
     def extract_page_id(url: str) -> str:
@@ -328,7 +332,8 @@ class LeMonde(LeMondeBase):
         my_articles = []
 
         # loop on the matrix of styles
-        for style in matrix:
+        for index, style in enumerate(matrix, start=1):
+            logger.info("⚙️ %s/%s : doing %s", index, len(matrix), style)
             mobile, dark = parse_style(style)
 
             name = make_pdf_name(url, mobile=mobile, dark=dark)
@@ -681,7 +686,8 @@ class LeMondeAsync(LeMondeBase):
         my_articles = []
 
         # loop on the matrix of styles
-        for style in matrix:
+        for index, style in enumerate(matrix, start=1):
+            logger.info("⚙️ %s/%s : doing %s", index, len(matrix), style)
             mobile, dark = parse_style(style)
 
             name = make_pdf_name(url, mobile=mobile, dark=dark)

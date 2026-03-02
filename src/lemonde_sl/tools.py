@@ -5,7 +5,7 @@ def iter_children(node):
         child = child.next
 
 
-def pick_best_src(srcset: str, target_width: int = 664) -> str | None:
+def pick_best_src(srcset: str, target_width: int = 664, max_width: int = 1200) -> str | None:
     """
     Choisit l'URL du srcset la plus proche de target_width.
     """
@@ -16,17 +16,16 @@ def pick_best_src(srcset: str, target_width: int = 664) -> str | None:
             continue
         url, width = parts
         try:
-            width = int(width.rstrip("w"))  # type: ignore
-            candidates.append((width, url))
+            width_int = int(width.rstrip("w"))
+            if width_int <= max_width:  # sécurité anti-OOM
+                candidates.append((width_int, url))
         except ValueError:
             continue
 
     if not candidates:
         return None
 
-    # Choisir la largeur la plus proche
-    best = min(candidates, key=lambda x: abs(x[0] - target_width))  # type: ignore
-    return best[1]
+    return min(candidates, key=lambda x: abs(x[0] - target_width))[1]
 
 
 def fix_image_urls(soup, target_width=664):
@@ -62,18 +61,27 @@ def fix_image_urls(soup, target_width=664):
             continue
 
         # 1) srcset or data-srcset
-        srcset = img.get("srcset") or img.get("data-srcset")
+        srcset = img.get("srcset") or img.get("data-srcset") or img.get("data-lazy-srcset")
         if srcset:
             best = pick_best_src(srcset, target_width)
             if best:
                 img["src"] = best
 
         # 2) fallback: data-src
-        elif img.get("data-src"):
-            img["src"] = img["data-src"]
+        elif img.get("data-src") or img.get("data-lazy-src"):
+            img["src"] = img.get("data-src") or img.get("data-lazy-src")
 
         # 3) remove useless attributes
-        for attr in ("srcset", "sizes", "width", "height", "data-src", "data-srcset"):
+        for attr in (
+            "srcset",
+            "sizes",
+            "width",
+            "height",
+            "data-src",
+            "data-srcset",
+            "data-lazy-src",
+            "data-lazy-srcset",
+        ):
             img.attrs.pop(attr, None)
 
 
@@ -105,15 +113,15 @@ def simplify_picture_tags(soup, target_width=664):
             continue
 
         # 1) srcset or data-srcset
-        srcset = img.get("srcset") or img.get("data-srcset")
+        srcset = img.get("srcset") or img.get("data-srcset") or img.get("data-lazy-srcset")
         if srcset:
             best = pick_best_src(srcset, target_width)
             if best:
                 img["src"] = best
 
         # 2) fallback: data-src
-        elif img.get("data-src"):
-            img["src"] = img["data-src"]
+        elif img.get("data-src") or img.get("data-lazy-src"):
+            img["src"] = img.get("data-src") or img.get("data-lazy-src")
 
         # 3) remove useless attributes
         for attr in ("srcset", "sizes", "width", "height", "data-src", "data-srcset"):
