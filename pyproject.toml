@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lemonde-sl"
-version = "2.2.1+wkhtml"
+version = "2.2.2+wkhtml"
 description = "A clean, modern Python package using uv, ruff, invoke, and strict tooling."
 readme = "README.md"
 license = { file = "LICENSE" }

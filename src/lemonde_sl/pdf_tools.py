@@ -20,8 +20,8 @@ def _make_pdf_prefix(mobile: bool, dark: bool) -> str:
     mode = "mobile" if mobile else "desk"
     theme = "dark" if dark else "light"
     prefix = f"{mode}_{theme}_"
-    if prefix == "desk_light_":
-        prefix = ""
+    # if prefix == "desk_light_":
+    #     prefix = ""
     return prefix
 
 
