@@ -1,3 +1,10 @@
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from bs4 import BeautifulSoup
+    # from bs4.element import AttributeValueList
+
+
 def iter_children(node):
     child = node.child
     while child:
@@ -28,7 +35,7 @@ def pick_best_src(srcset: str, target_width: int = 664, max_width: int = 1200) -
     return min(candidates, key=lambda x: abs(x[0] - target_width))[1]
 
 
-def fix_image_urls(soup, target_width=664):
+def fix_image_urls(soup: "BeautifulSoup", target_width: int = 664) -> None:
     """
     Normalize <img> URLs by selecting the best source from srcset or data-srcset.
 
@@ -61,7 +68,7 @@ def fix_image_urls(soup, target_width=664):
             continue
 
         # 1) srcset or data-srcset
-        srcset = img.get("srcset") or img.get("data-srcset") or img.get("data-lazy-srcset")
+        srcset: str = img.get("srcset") or img.get("data-srcset") or img.get("data-lazy-srcset")  # type: ignore[assignment]
         if srcset:
             best = pick_best_src(srcset, target_width)
             if best:
@@ -69,7 +76,7 @@ def fix_image_urls(soup, target_width=664):
 
         # 2) fallback: data-src
         elif img.get("data-src") or img.get("data-lazy-src"):
-            img["src"] = img.get("data-src") or img.get("data-lazy-src")
+            img["src"] = img.get("data-src") or img.get("data-lazy-src")  # type: ignore[assignment]
 
         # 3) remove useless attributes
         for attr in (
@@ -85,7 +92,7 @@ def fix_image_urls(soup, target_width=664):
             img.attrs.pop(attr, None)
 
 
-def simplify_picture_tags(soup, target_width=664):
+def simplify_picture_tags(soup: "BeautifulSoup", target_width: int = 664) -> None:
     """
     Simplify <picture> elements by extracting the best <img> source and removing
     responsive attributes.
@@ -113,7 +120,7 @@ def simplify_picture_tags(soup, target_width=664):
             continue
 
         # 1) srcset or data-srcset
-        srcset = img.get("srcset") or img.get("data-srcset") or img.get("data-lazy-srcset")
+        srcset: str = img.get("srcset") or img.get("data-srcset") or img.get("data-lazy-srcset")  # type: ignore[assignment]
         if srcset:
             best = pick_best_src(srcset, target_width)
             if best:
@@ -121,7 +128,7 @@ def simplify_picture_tags(soup, target_width=664):
 
         # 2) fallback: data-src
         elif img.get("data-src") or img.get("data-lazy-src"):
-            img["src"] = img.get("data-src") or img.get("data-lazy-src")
+            img["src"] = img.get("data-src") or img.get("data-lazy-src")  # type: ignore[assignment]
 
         # 3) remove useless attributes
         for attr in ("srcset", "sizes", "width", "height", "data-src", "data-srcset"):
@@ -129,6 +136,21 @@ def simplify_picture_tags(soup, target_width=664):
 
         # 4) replace <picture> with <img>
         picture.replace_with(img)
+
+
+def limit_portfolio_images(soup: "BeautifulSoup", max_images: int = 5) -> None:
+    """
+    Garde seulement les `max_images` premières figures du portfolio.
+    Supprime les autres pour éviter les OOM.
+    """
+    figures = soup.select("figure.portfolio__figure")
+    for fig in figures[max_images:]:
+        try:
+            img = fig.select_one("section.portfolio__media-wrapper")
+            if img:
+                img.decompose()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

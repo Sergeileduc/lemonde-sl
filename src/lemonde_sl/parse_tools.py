@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import logging
 import re
 from typing import TYPE_CHECKING
@@ -17,7 +15,7 @@ def extract_page_id(url: str) -> str:
     return m.group(1)
 
 
-def remove_bloats(article: Node, bloats: list) -> None:
+def remove_bloats(article: "Node", bloats: list) -> None:
     "Remove some bloats in the article soup."
     for c in bloats:
         try:

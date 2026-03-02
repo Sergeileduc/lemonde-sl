@@ -4,7 +4,6 @@ import os
 import re
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
 from datetime import datetime
 from os import PathLike
 from pathlib import Path
@@ -20,11 +19,10 @@ from rich.panel import Panel
 from rich.text import Text
 from selectolax.parser import HTMLParser, Node
 
-from lemonde_sl.models import MyArticle
-
+from .models import Comment, MyArticle
 from .parse_tools import parse_style
 from .pdf_tools import build_pdf_html, make_pdf_name
-from .tools import fix_image_urls, simplify_picture_tags
+from .tools import fix_image_urls, limit_portfolio_images, simplify_picture_tags
 
 logger = logging.getLogger(__name__)
 
@@ -358,6 +356,7 @@ class LeMonde(LeMondeBase):
         """
         # Clean images with BeautifulSoup before giving to PDF generation
         soup = BeautifulSoup(article_body, "html.parser")
+        limit_portfolio_images(soup, max_images=3)
         target_size = 200 if mobile else 550
         simplify_picture_tags(soup, target_width=target_size)
         fix_image_urls(soup, target_width=target_size)
@@ -714,6 +713,7 @@ class LeMondeAsync(LeMondeBase):
         """
         # Clean images with BeautifulSoup before giving to PDF generation
         soup = BeautifulSoup(article_body, "html.parser")
+        limit_portfolio_images(soup, max_images=3)
         target_size = 200 if mobile else 550
         simplify_picture_tags(soup, target_width=target_size)
         fix_image_urls(soup, target_width=target_size)
@@ -832,23 +832,6 @@ class LeMondeAsync(LeMondeBase):
         resp = await self.client.get(url)
         resp.raise_for_status()
         return resp.json()  # type: ignore[no-any-return]
-
-
-@dataclass
-class Comment:
-    id: str
-    author: str
-    content: str
-    created_at: datetime
-    likes: int
-    parent_id: str | None
-    replies: list["Comment"] = field(default_factory=list)
-
-    def __rich__(self):
-        title = f"- [bold red]{self.author}[/] ({self.created_at}) [{self.likes} likes]"
-        text = Text(self.content, style="cyan")
-        return Panel(text, title=title, title_align="left", border_style="green")
-
 
 def parse_comment(data: dict) -> Comment:
     replies = [parse_comment(r) for r in data.get("replies", [])]
