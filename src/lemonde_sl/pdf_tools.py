@@ -69,14 +69,16 @@ def build_pdf_html(
         # padding_mm = 0 if not dark else 7
         margin_mm = 0
         padding_mm = 7
-        font_size = 18
+        font_size = 20  # px
+        legend_size = 15  # px
     else:
         page_size = "A4"
         # margin_mm = 20 if not dark else 0
         # padding_mm = 0 if not dark else 20
         margin_mm = 0
         padding_mm = 30
-        font_size = 16
+        font_size = 18  # px
+        legend_size = 16  # px
 
     # PDFKit options
     options = {
@@ -91,57 +93,65 @@ def build_pdf_html(
         "enable-local-file-access": "",
     }
 
-    # Theme CSS
+    common_css = f"""
+    <style>
+    html {{
+        background: transparent;
+    }}
+    body {{
+        margin: 0;
+        padding: {padding_mm}mm;
+        font-family: sans-serif;
+        font-size: {font_size}px;
+        line-height: 1.6;
+        box-sizing: border-box;
+    }}
+    img {{
+        max-width: 100%;
+        height: auto;
+    }}
+    .article__legend {{
+        font-size: {legend_size}px;
+        line-height: 1.3;
+        margin-top: 4px;
+        display: block;
+        color: inherit;
+    }}
+    .article__legend .article__credit {{
+        font-size: {legend_size - 2}px;
+        color: inherit;
+    }}
+    </style>
+    """
+
     if dark:
-        css = f"""<style>
-            html {{
-                background: #121212;
-            }}
-            body {{
-                background: transparent;
-                color: #e0e0e0;
-                margin: 0;
-                padding: {padding_mm}mm;
-                font-family: sans-serif;
-                font-size: {font_size}pt;
-                line-height: 1.6;
-                box-sizing: border-box;
-            }}
-            a {{
-                color: #90caf9;
-            }}
-            img {{
-                max-width: 100%;
-                height: auto;
-            }}
-        </style>"""
-    else:
-        css = f"""
+        theme_css = """
         <style>
-            body {{
-                margin: 0;
-                padding: {padding_mm}mm;
-                font-family: sans-serif;
-                font-size: {font_size}pt;
-                line-height: 1.6;
-            }}
-            img {{
-                max-width: 100%;
-                height: auto;
-            }}
+        html { background: #121212; }
+        body { background: transparent; color: #e0e0e0; }
+        a { color: #90caf9; }
+        </style>
+        """
+    else:
+        theme_css = """
+        <style>
+        body { background: white; color: #000; }
+        a { color: #0645ad; }
         </style>
         """
 
+    css = common_css + theme_css
+
     # Final HTML
     html = f"""
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        {css}
-    </head>
-    <body>
-        {fragment}
-    </body>
-    </html>
-    """
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            {css}
+        </head>
+        <body>
+            {fragment}
+        </body>
+        </html>
+        """
     return html.strip(), options
