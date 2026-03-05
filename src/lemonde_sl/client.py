@@ -146,6 +146,7 @@ class LeMondeBase(ABC):
         """Fetch PDF (sync or async depending on subclass)."""
         raise NotImplementedError
 
+
 class LeMonde(LeMondeBase):
     def __init__(self):
         # Le client vit aussi longtemps que l'objet
@@ -832,6 +833,7 @@ class LeMondeAsync(LeMondeBase):
         resp = await self.client.get(url)
         resp.raise_for_status()
         return resp.json()  # type: ignore[no-any-return]
+
 
 def parse_comment(data: dict) -> Comment:
     replies = [parse_comment(r) for r in data.get("replies", [])]

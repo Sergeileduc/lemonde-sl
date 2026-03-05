@@ -16,6 +16,7 @@ class MyArticle:
     def has_warning(self) -> bool:
         return self.warning is not None
 
+
 @dataclass
 class Comment:
     id: str
