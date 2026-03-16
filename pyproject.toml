@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lemonde-sl"
-version = "2.4.1"
+version = "2.4.2"
 description = "A clean, modern Python package using uv, ruff, invoke, and strict tooling."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -13,7 +13,7 @@ authors = [
     { name = "Sergeileduc", email = "sergei.leduc@gmail.com" }
 ]
 
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 
 # Dépendances runtime (si ton package en a)
 dependencies = [
@@ -28,7 +28,6 @@ dependencies = [
 # Classifiers PyPI (bonne pratique)
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",

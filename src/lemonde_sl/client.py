@@ -22,8 +22,10 @@ from weasyprint import CSS, HTML
 
 from .models import Comment, JSONObject, MyArticle
 from .parse_tools import parse_style
+from .pdf_client import PdfWorkerClient
 from .pdf_tools import build_pdf_html, make_pdf_name, render_pdf_worker
 from .tools import fix_image_urls, limit_images_with_priority, simplify_picture_tags
+from .types import PathType
 
 logger = logging.getLogger(__name__)
 
@@ -408,7 +410,7 @@ class LeMonde(LeMondeBase):
     @staticmethod
     def to_pdf(
         html: str,
-        output_path: str | PathLike[str],
+        output_path: PathType,
         css: str,
         remove_multimedia: bool = True,
     ) -> tuple[bool, str | None]:
@@ -516,6 +518,7 @@ class LeMondeAsync(LeMondeBase):
             follow_redirects=True,
             timeout=10.0,
         )
+        self.pdf_worker = PdfWorkerClient(timeout=90.0)
 
     async def login(self, email: str, password: str) -> None:
         """Authenticate to LM using email and password (asynchronous).
@@ -767,10 +770,10 @@ class LeMondeAsync(LeMondeBase):
         r = await self.client.get(self.LOGOUT_URL)
         print("✅ Logout:", r.status_code)
 
-    @staticmethod
     async def to_pdf(
+        self,
         html: str,
-        output_path: str | PathLike[str],
+        output_path: PathType,
         css: str,
         remove_multimedia: bool = True,
     ) -> tuple[bool, str | None]:
@@ -799,13 +802,12 @@ class LeMondeAsync(LeMondeBase):
 
         logger.info("Starting weasyprint")
         try:
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                PDF_EXECUTOR, partial(render_pdf_worker, html, css, output_path)
-            )
-
-            logger.info("Weasyprint OK into : %s", output_path)
-            return True, None
+            success, warning = await self.pdf_worker.render_pdf(html, css, output_path)
+            if success:
+                logger.info("Weasyprint OK into : %s", output_path)
+            else:
+                logger.warning("Weasyprint failed for %s: %s", output_path, warning)
+            return success, warning
 
         except OSError as e:
             logger.error("weazyprint failed on first attempt")
@@ -823,14 +825,10 @@ class LeMondeAsync(LeMondeBase):
             logger.info("Decomposing some medias-embed")
             logger.info("Retry weasyprint")
             try:
-                loop = asyncio.get_running_loop()
-                await loop.run_in_executor(
-                    PDF_EXECUTOR, partial(render_pdf_worker, html, css, output_path)
-                )
-
+                success, warning = await self.pdf_worker.render_pdf(html, css, output_path)
                 logger.info("2nd attempt weasy print OK")
                 return (
-                    True,
+                    success,
                     "Multimedia content was removed because weasyprint could not render it.",
                 )
             except Exception as e2:
@@ -840,6 +838,7 @@ class LeMondeAsync(LeMondeBase):
 
     async def close(self) -> None:
         await self.client.aclose()
+        await self.pdf_worker.close()
 
     async def __aenter__(self):
         return self
@@ -852,8 +851,8 @@ class LeMondeAsync(LeMondeBase):
             logger.error("Error in __aexit__ logout")
 
         try:
-            await self.client.aclose()
-            logger.info("client.close() OK in __exit__")
+            await self.close()
+            logger.info("client.close() and pdf_workder.close() OK in __exit__")
         except Exception:
             logger.error("Error in __exit__ client.close")
 
