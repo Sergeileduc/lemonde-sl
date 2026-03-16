@@ -3,7 +3,9 @@ import logging
 import os
 import time
 from abc import ABC, abstractmethod
+from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
+from functools import partial
 from os import PathLike
 from pathlib import Path
 from typing import Self
@@ -20,10 +22,14 @@ from weasyprint import CSS, HTML
 
 from .models import Comment, JSONObject, MyArticle
 from .parse_tools import parse_style
-from .pdf_tools import build_pdf_html, make_pdf_name
+from .pdf_tools import build_pdf_html, make_pdf_name, render_pdf_worker
 from .tools import fix_image_urls, limit_images_with_priority, simplify_picture_tags
 
 logger = logging.getLogger(__name__)
+
+PDF_EXECUTOR = ProcessPoolExecutor(
+    max_workers=1
+)  # Un seul worker pour éviter les corruptions internes
 
 
 class LeMondeBase(ABC):
@@ -793,9 +799,11 @@ class LeMondeAsync(LeMondeBase):
 
         logger.info("Starting weasyprint")
         try:
-            await asyncio.to_thread(
-                lambda: HTML(string=html).write_pdf(output_path, stylesheets=[CSS(string=css)])
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                PDF_EXECUTOR, partial(render_pdf_worker, html, css, output_path)
             )
+
             logger.info("Weasyprint OK into : %s", output_path)
             return True, None
 
@@ -815,9 +823,11 @@ class LeMondeAsync(LeMondeBase):
             logger.info("Decomposing some medias-embed")
             logger.info("Retry weasyprint")
             try:
-                await asyncio.to_thread(
-                    lambda: HTML(string=html).write_pdf(output_path, stylesheets=[CSS(string=css)])
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(
+                    PDF_EXECUTOR, partial(render_pdf_worker, html, css, output_path)
                 )
+
                 logger.info("2nd attempt weasy print OK")
                 return (
                     True,
