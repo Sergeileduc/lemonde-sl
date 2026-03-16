@@ -1,24 +1,10 @@
-# from dataclasses import dataclass
+import gc
 import os
-from os import PathLike
 from urllib.parse import urlparse
 
+from weasyprint import CSS, HTML
 
-def render_pdf_worker(html: str, css: str, output_path: str | PathLike[str]) -> None:
-    """Create PDF file (in output_path) from html (str).
-
-    Args:
-        html (str): html to render
-        css (str): CSS (is used for margin, page sizes, font size, for mobile or dark theme...)
-        output_path (str | PathLike[str]): output file path
-    """
-    from weasyprint import (
-        CSS,
-        HTML,
-    )  # ⚠️ Note : importer WeasyPrint dans la fonction évite les soucis de pickling et d’état global.  # noqa: E501
-
-    HTML(string=html).write_pdf(output_path, stylesheets=[CSS(string=css)])
-
+from .types import PathType
 
 PRESETS = {
     "desk_light": {"mobile": False, "dark": False},
@@ -26,6 +12,16 @@ PRESETS = {
     "mobile_light": {"mobile": True, "dark": False},
     "mobile_dark": {"mobile": True, "dark": True},
 }
+
+
+def render_pdf_sync(html: str, css: str, output_path: PathType) -> None:
+    # Rendu
+    doc = HTML(string=html)
+    doc.write_pdf(output_path, stylesheets=[CSS(string=css)])
+
+    # Cleanup agressif
+    del doc
+    gc.collect()
 
 
 def _make_pdf_prefix(mobile: bool, dark: bool) -> str:
