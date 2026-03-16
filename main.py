@@ -18,10 +18,12 @@ def runsync():
     print("Version SYNC")
     with LeMonde() as lm:
         print(lm)
-        # lm.fetch_pdf(url=URL1, email=email, password=password, mobile=True, dark=True)
+        # lm.fetch_pdf(
+        #     url=URL1, email=email, password=password, max_img=3
+        # )  # limit 3 images for no OOM
         # matrix = ["normal_light", "normal_dark", "mobile_light", "mobile_dark"]
-        # lm.fetch_multiple_pdf(url=URL1, email=email, password=password, matrix=matrix)
-        articles = lm.fetch_all_pdf(url=URL1, email=email, password=password)
+        # lm.fetch_multiple_pdf(url=URL1, email=email, password=password, matrix=matrix, max_img=3)
+        articles = lm.fetch_all_pdf(url=URL1, email=email, password=password, max_img=3)
         for art in articles:
             print(art)
         # id = lm.extract_page_id(URL1)
@@ -47,13 +49,21 @@ async def runasync():
         # for article in articles:
         #     print(article.path, article.success, article.warning)
 
-        articles = await lm.fetch_all_pdf(url=URL2, email=email, password=password)
+        articles = await lm.fetch_all_pdf(url=URL2, email=email, password=password, max_img=3)
         for art in articles:
             print(art)
 
 
 if __name__ == "__main__":
     import time
+    from pathlib import Path
+
+    # CLEAN
+    exclude = ("venv", ".venv")
+    p = Path(".")
+    genpdf = (i for i in p.rglob("*.pdf") if not str(i.parent).startswith(exclude))
+    for art in genpdf:
+        os.remove(art)
 
     runsync()
     time.sleep(0.5)

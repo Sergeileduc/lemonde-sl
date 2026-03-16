@@ -20,8 +20,8 @@ def _make_pdf_prefix(mobile: bool, dark: bool) -> str:
     mode = "mobile" if mobile else "desk"
     theme = "dark" if dark else "light"
     prefix = f"{mode}_{theme}_"
-    if prefix == "desk_light_":
-        prefix = ""
+    # if prefix == "desk_light_":
+    #     prefix = ""
     return prefix
 
 
@@ -78,7 +78,7 @@ def build_pdf_html(
         padding_mm = 0 if not dark else 15
         title_scale = 1.0  # normal
         legend_scale = 1.0
-    
+
     base_h1 = 1.4  # rem
     base_h2 = 1.3  # rem
     base_h3 = 1.2  # rem

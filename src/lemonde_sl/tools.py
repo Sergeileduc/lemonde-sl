@@ -1,3 +1,30 @@
+TRANSPARENT_GIF = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
+
+HEAVY_ATTRS = [
+    "srcset",
+    "data-srcset",
+    "sizes",
+    "data-sizes",
+    "data-src",
+    "width",
+    "height",
+    "loading",
+    "decoding",
+]
+
+
+def neutralize_img(img):
+    # Supprimer tous les attributs lourds
+    for attr in HEAVY_ATTRS:
+        img.attrs.pop(attr, None)
+
+    # Supprimer src pour éviter tout chargement
+    img.attrs.pop("src", None)
+
+    # Ajouter un placeholder minimal
+    img["src"] = TRANSPARENT_GIF
+
+
 def iter_children(node):
     child = node.child
     while child:
@@ -29,7 +56,7 @@ def pick_best_src(srcset: str, target_width: int = 664) -> str | None:
     return best[1]
 
 
-def fix_image_urls(soup, target_width=664):
+def fix_image_urls(soup: "BeautifulSoup", target_width: int = 664) -> None:
     """
     Normalize <img> URLs by selecting the best source from srcset or data-srcset.
 
@@ -62,22 +89,31 @@ def fix_image_urls(soup, target_width=664):
             continue
 
         # 1) srcset or data-srcset
-        srcset = img.get("srcset") or img.get("data-srcset")
+        srcset: str = img.get("srcset") or img.get("data-srcset") or img.get("data-lazy-srcset")  # type: ignore[assignment]
         if srcset:
             best = pick_best_src(srcset, target_width)
             if best:
                 img["src"] = best
 
         # 2) fallback: data-src
-        elif img.get("data-src"):
-            img["src"] = img["data-src"]
+        elif img.get("data-src") or img.get("data-lazy-src"):
+            img["src"] = img.get("data-src") or img.get("data-lazy-src")  # type: ignore[assignment]
 
         # 3) remove useless attributes
-        for attr in ("srcset", "sizes", "width", "height", "data-src", "data-srcset"):
+        for attr in (
+            "srcset",
+            "sizes",
+            "width",
+            "height",
+            "data-src",
+            "data-srcset",
+            "data-lazy-src",
+            "data-lazy-srcset",
+        ):
             img.attrs.pop(attr, None)
 
 
-def simplify_picture_tags(soup, target_width=664):
+def simplify_picture_tags(soup: "BeautifulSoup", target_width: int = 664) -> None:
     """
     Simplify <picture> elements by extracting the best <img> source and removing
     responsive attributes.
@@ -105,15 +141,15 @@ def simplify_picture_tags(soup, target_width=664):
             continue
 
         # 1) srcset or data-srcset
-        srcset = img.get("srcset") or img.get("data-srcset")
+        srcset: str = img.get("srcset") or img.get("data-srcset") or img.get("data-lazy-srcset")  # type: ignore[assignment]
         if srcset:
             best = pick_best_src(srcset, target_width)
             if best:
                 img["src"] = best
 
         # 2) fallback: data-src
-        elif img.get("data-src"):
-            img["src"] = img["data-src"]
+        elif img.get("data-src") or img.get("data-lazy-src"):
+            img["src"] = img.get("data-src") or img.get("data-lazy-src")  # type: ignore[assignment]
 
         # 3) remove useless attributes
         for attr in ("srcset", "sizes", "width", "height", "data-src", "data-srcset"):
@@ -122,6 +158,68 @@ def simplify_picture_tags(soup, target_width=664):
         # 4) replace <picture> with <img>
         picture.replace_with(img)
 
+
+def limit_images_with_priority(soup: "BeautifulSoup", max_global: int = 50) -> None:
+    """
+    Limite le nombre total d'images en donnant la priorité aux images d'article.
+    Les images de portfolio ne sont gardées que s'il reste du budget.
+    """
+
+    # 1) Séparer les deux types d'images
+    article_figs = soup.select("figure:not(.portfolio__figure)")
+    portfolio_figs = soup.select("figure.portfolio__figure")
+
+    # 2) Compter les images article
+    article_imgs = []
+    for fig in article_figs:
+        img = fig.find("img")
+        if img:
+            article_imgs.append(img)
+
+    # 3) Si les images article dépassent déjà le max, on garde juste les premières
+    if len(article_imgs) >= max_global:
+        # Neutraliser toutes les images article au-delà du quota
+        for img in article_imgs[max_global:]:
+            neutralize_img(img)
+        # Et neutraliser toutes les images portfolio
+        for fig in portfolio_figs:
+            media = fig.select_one("section.portfolio__media-wrapper")
+            if media:
+                media.decompose()
+        return
+
+    # 4) Sinon, il reste du budget pour le portfolio
+    remaining = max_global - len(article_imgs)
+
+    # 5) Garder seulement les `remaining` premières images du portfolio
+    for fig in portfolio_figs[remaining:]:
+        media = fig.select_one("section.portfolio__media-wrapper")
+        if media:
+            media.decompose()
+
+
+# DEPRECATE. Keep for Legacy
+def limit_portfolio_images(soup: "BeautifulSoup", max_images: int = 5) -> None:
+    """
+    Garde seulement les `max_images` premières figures du portfolio.
+    Supprime les autres pour éviter les OOM.
+    """
+    figures = soup.select("figure.portfolio__figure")
+    for fig in figures[max_images:]:
+        try:
+            img = fig.select_one("section.portfolio__media-wrapper")
+            if img:
+                img.decompose()
+        except Exception:
+            pass
+
+def sanitize_images(soup: "BeautifulSoup", max_img: int = 3) -> None:
+    imgs = soup.select("img")
+
+    for i, img in enumerate(imgs):
+        if i < max_img:
+            continue
+        neutralize_img(img)
 
 if __name__ == "__main__":
     srcset = """

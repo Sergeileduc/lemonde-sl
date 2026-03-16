@@ -18,11 +18,10 @@ from rich.text import Text
 from selectolax.parser import HTMLParser, Node
 from weasyprint import CSS, HTML
 
-from lemonde_sl.models import Comment, JSONObject, MyArticle
-from lemonde_sl.tools import fix_image_urls, simplify_picture_tags
-
+from .models import Comment, JSONObject, MyArticle
 from .parse_tools import parse_style
 from .pdf_tools import build_pdf_html, make_pdf_name
+from .tools import fix_image_urls, limit_images_with_priority, simplify_picture_tags
 
 logger = logging.getLogger(__name__)
 
@@ -47,18 +46,22 @@ class LeMondeBase(ABC):
     # Bloats in HTML
     CSS_BLOATS = [
         ".meta__social",
+        ".services-carousel",
+        "a.Header__offer",
+        "aside.aside__iso.old__aside",
+        "div.catcher__favorite",
+        "div.multimedia-embed",
+        "noscript",
+        "section.article__reactions",
+        "section.article__siblings",
+        "section.js-portfolio-controls",
+        "section.js-portfolio-fs",
+        "section.js-portfolio-pagination",
+        "section.portfolio__fs-open-container",
+        "section.friend",
+        "section.inread",
         "ul.breadcrumb",
         "ul.ds-breadcrumb",
-        "section.article__reactions",
-        "section.friend",
-        "section.article__siblings",
-        "aside.aside__iso.old__aside",
-        "section.inread",
-        "div.catcher__favorite",
-        "a.Header__offer",
-        "noscript",
-        ".services-carousel",
-        "div.multimedia-embed",
     ]
 
     # ---------------------------------------------------------
@@ -242,6 +245,7 @@ class LeMonde(LeMondeBase):
         password: str | None = None,
         mobile: bool = False,
         dark: bool = False,
+        max_img: int = 50,
     ) -> MyArticle:
         """
         Télécharge un article, le nettoie et génère un PDF.
@@ -257,6 +261,9 @@ class LeMonde(LeMondeBase):
             url (str): URL de l'article à télécharger.
             email (str | None): Email utilisé pour le login. Si None, aucun login n'est effectué.
             password (str | None): Mot de passe associé. Si None, aucun login n'est effectué.
+            mobile (bool) : mode mobile. Default to False
+            dark (bool) : dark mode. Default to False
+            max_img (int) : Max imgs to load (critical for memory).
 
         Returns:
             MyArticle
@@ -275,7 +282,9 @@ class LeMonde(LeMondeBase):
             raise RuntimeError("Impossible de parser l'article")
 
         output_path = make_pdf_name(url, mobile=mobile, dark=dark)
-        return self.render_variant_pdf(article_body, name=output_path, mobile=mobile, dark=dark)
+        return self.render_variant_pdf(
+            article_body, name=output_path, mobile=mobile, dark=dark, max_img=max_img
+        )
 
     def fetch_multiple_pdf(
         self,
@@ -283,6 +292,7 @@ class LeMonde(LeMondeBase):
         matrix: list[str],
         email: str | None = None,
         password: str | None = None,
+        max_img: int = 50,
     ) -> list[MyArticle]:
         """
         Télécharge un article, le nettoie et génère 1 ou plusieurs PDF selon une matrice.
@@ -300,6 +310,7 @@ class LeMonde(LeMondeBase):
             email (str | None): Email utilisé pour le login. Si None, aucun login n'est effectué.
             password (str | None): Mot de passe associé. Si None, aucun login n'est effectué.
             matrix (list): liste des fichiers attendus (["normaldark", "mobilelight", etc])
+            max_img (int): Max imgs to load (critical for memory).
 
         Returns:
             list[MyArticle]
@@ -324,7 +335,9 @@ class LeMonde(LeMondeBase):
             mobile, dark = parse_style(style)
 
             name = make_pdf_name(url, mobile=mobile, dark=dark)
-            article = self.render_variant_pdf(article_body, name=name, mobile=mobile, dark=dark)
+            article = self.render_variant_pdf(
+                article_body, name=name, mobile=mobile, dark=dark, max_img=max_img
+            )
             my_articles.append(article)
         return my_articles
 
@@ -333,21 +346,40 @@ class LeMonde(LeMondeBase):
         url: str,
         email: str | None = None,
         password: str | None = None,
+        max_img: int = 50,
     ) -> list[MyArticle]:
         matrix = ["normal_light", "normal_dark", "mobile_light", "mobile_dark"]
-        return self.fetch_multiple_pdf(url=url, email=email, password=password, matrix=matrix)
+        return self.fetch_multiple_pdf(
+            url=url, email=email, password=password, matrix=matrix, max_img=max_img
+        )
 
     def render_variant_pdf(
-        self, article_body: str, name: str, mobile: bool = False, dark: bool = False
+        self,
+        article_body: str,
+        name: str,
+        mobile: bool = False,
+        dark: bool = False,
+        max_img: int = 50,
     ) -> MyArticle:
-        """ "Makes a pdf from article_body.
+        """Makes a pdf from article_body.
         Should be called after login and after fetch_and_parse.
+
+        Args:
+            article_body (str): html to render
+            name (str): name of .pdf file to generate
+            mobile (bool, optional): mobile mode. Defaults to False.
+            dark (bool, optional): dark theme mode. Defaults to False.
+            max_img (int, optional): max images to load. Defaults to 50.
+
+        Returns:
+            MyArticle: _description_
         """
         # Clean images with BeautifulSoup before giving to PDF generation
         soup = BeautifulSoup(article_body, "html.parser")
         target_size = 200 if mobile else 550
         simplify_picture_tags(soup, target_width=target_size)
         fix_image_urls(soup, target_width=target_size)
+        limit_images_with_priority(soup, max_global=max_img)
         clean_html = str(soup)
 
         # Making HTML ready for pdf
@@ -401,6 +433,7 @@ class LeMonde(LeMondeBase):
 
         try:
             HTML(string=html).write_pdf(output_path, stylesheets=[CSS(string=css)])
+            logger.info("Weasyprint done into %s", output_path)
             return True, None
 
         except OSError as e:
@@ -562,6 +595,7 @@ class LeMondeAsync(LeMondeBase):
         password: str | None = None,
         mobile: bool = False,
         dark: bool = False,
+        max_img: int = 50,
     ) -> MyArticle:
         """
         Télécharge un article LM, le nettoie et génère un PDF.
@@ -574,9 +608,12 @@ class LeMondeAsync(LeMondeBase):
         5. L'export du PDF sur disque
 
         Args:
-            url (str): URL de l'article LM à télécharger.
+            url (str): URL de l'article à télécharger.
             email (str | None): Email utilisé pour le login. Si None, aucun login n'est effectué.
             password (str | None): Mot de passe associé. Si None, aucun login n'est effectué.
+            mobile (bool) : mode mobile. Default to False
+            dark (bool) : dark mode. Default to False
+            max_img (int) : Max imgs to load (critical for memory).
 
         Returns:
             MyArticle
@@ -602,7 +639,7 @@ class LeMondeAsync(LeMondeBase):
         logger.info("to_pdf completed")
 
         return await self.render_variant_pdf(
-            article_body, name=output_path, mobile=mobile, dark=dark
+            article_body, name=output_path, mobile=mobile, dark=dark, max_img=max_img
         )
 
     async def fetch_multiple_pdf(
@@ -611,6 +648,7 @@ class LeMondeAsync(LeMondeBase):
         matrix: list[str],
         email: str | None = None,
         password: str | None = None,
+        max_img: int = 50,
     ) -> list[MyArticle]:
         """
         Télécharge un article, le nettoie et génère 1 ou plusieurs PDF selon une matrice.
@@ -628,6 +666,7 @@ class LeMondeAsync(LeMondeBase):
             email (str | None): Email utilisé pour le login. Si None, aucun login n'est effectué.
             password (str | None): Mot de passe associé. Si None, aucun login n'est effectué.
             matrix (list): liste des fichiers attendus (["normaldark", "mobilelight", etc])
+            max_img (int): Max imgs to load (critical for memory).
 
         Returns:
             list[MyArticle]
@@ -653,7 +692,11 @@ class LeMondeAsync(LeMondeBase):
 
             name = make_pdf_name(url, mobile=mobile, dark=dark)
             article = await self.render_variant_pdf(
-                article_body, name=name, mobile=mobile, dark=dark
+                article_body,
+                name=name,
+                mobile=mobile,
+                dark=dark,
+                max_img=max_img,
             )
             my_articles.append(article)
         return my_articles
@@ -663,12 +706,20 @@ class LeMondeAsync(LeMondeBase):
         url: str,
         email: str | None = None,
         password: str | None = None,
+        max_img: int = 50,
     ) -> list[MyArticle]:
         matrix = ["normal_light", "normal_dark", "mobile_light", "mobile_dark"]
-        return await self.fetch_multiple_pdf(url=url, email=email, password=password, matrix=matrix)
+        return await self.fetch_multiple_pdf(
+            url=url, email=email, password=password, matrix=matrix, max_img=max_img
+        )
 
     async def render_variant_pdf(
-        self, article_body: str, name: str, mobile: bool = False, dark: bool = False
+        self,
+        article_body: str,
+        name: str,
+        mobile: bool = False,
+        dark: bool = False,
+        max_img: int = 50,
     ) -> MyArticle:
         """ "Makes a pdf from article_body.
         Should be called after login and after fetch_and_parse.
@@ -678,6 +729,7 @@ class LeMondeAsync(LeMondeBase):
         target_size = 200 if mobile else 550
         simplify_picture_tags(soup, target_width=target_size)
         fix_image_urls(soup, target_width=target_size)
+        limit_images_with_priority(soup, max_global=max_img)
         clean_html = str(soup)
 
         # Making HTML ready for pdf
@@ -744,6 +796,7 @@ class LeMondeAsync(LeMondeBase):
             await asyncio.to_thread(
                 lambda: HTML(string=html).write_pdf(output_path, stylesheets=[CSS(string=css)])
             )
+            logger.info("Weasyprint OK into : %s", output_path)
             return True, None
 
         except OSError as e:
@@ -759,11 +812,13 @@ class LeMondeAsync(LeMondeBase):
             cleaned_html = HTMLParser(html)
             for node in cleaned_html.css("div.multimedia-embed"):
                 node.decompose()
-
+            logger.info("Decomposing some medias-embed")
+            logger.info("Retry weasyprint")
             try:
                 await asyncio.to_thread(
                     lambda: HTML(string=html).write_pdf(output_path, stylesheets=[CSS(string=css)])
                 )
+                logger.info("2nd attempt weasy print OK")
                 return (
                     True,
                     "Multimedia content was removed because weasyprint could not render it.",
