@@ -1,35 +1,20 @@
-TRANSPARENT_GIF = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
+from typing import TYPE_CHECKING
 
-HEAVY_ATTRS = [
-    "srcset",
-    "data-srcset",
-    "sizes",
-    "data-sizes",
-    "data-src",
-    "width",
-    "height",
-    "loading",
-    "decoding",
-]
+if TYPE_CHECKING:
+    from bs4 import BeautifulSoup, Tag
+
+# TRANSPARENT_GIF = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
 
 
-def neutralize_img(img):
-    # Supprimer tous les attributs lourds
-    for attr in HEAVY_ATTRS:
-        img.attrs.pop(attr, None)
+def neutralize_img(img: "Tag", soup: "BeautifulSoup"):
+    # Créer un div placeholder
+    placeholder = soup.new_tag("div")
+    placeholder["class"] = ["image-placeholder"]  # type: ignore[assignment]
+    # placeholder.string = "Image non chargée"  # type: ignore[assignment]
+    placeholder.string = "Image non chargée\n(c'est normal, économie de RAM)"  # type: ignore[assignment]
 
-    # Supprimer src pour éviter tout chargement
-    img.attrs.pop("src", None)
-
-    # Ajouter un placeholder minimal
-    img["src"] = TRANSPARENT_GIF
-
-
-def iter_children(node):
-    child = node.child
-    while child:
-        yield child
-        child = child.next
+    # Remplacer l'image par le placeholder
+    img.replace_with(placeholder)  # type: ignore[arg-type]
 
 
 def pick_best_src(srcset: str, target_width: int = 664) -> str | None:
@@ -109,6 +94,8 @@ def fix_image_urls(soup: "BeautifulSoup", target_width: int = 664) -> None:
             "data-srcset",
             "data-lazy-src",
             "data-lazy-srcset",
+            "data-full",
+            "data-full-width",
         ):
             img.attrs.pop(attr, None)
 
@@ -170,7 +157,7 @@ def limit_images_with_priority(soup: "BeautifulSoup", max_global: int = 50) -> N
     portfolio_figs = soup.select("figure.portfolio__figure")
 
     # 2) Compter les images article
-    article_imgs = []
+    article_imgs: list[Tag] = []
     for fig in article_figs:
         img = fig.find("img")
         if img:
@@ -180,12 +167,12 @@ def limit_images_with_priority(soup: "BeautifulSoup", max_global: int = 50) -> N
     if len(article_imgs) >= max_global:
         # Neutraliser toutes les images article au-delà du quota
         for img in article_imgs[max_global:]:
-            neutralize_img(img)
+            neutralize_img(img, soup)
         # Et neutraliser toutes les images portfolio
         for fig in portfolio_figs:
-            media = fig.select_one("section.portfolio__media-wrapper")
-            if media:
-                media.decompose()
+            img = fig.find("img")
+            if img:
+                neutralize_img(img, soup)
         return
 
     # 4) Sinon, il reste du budget pour le portfolio
@@ -193,9 +180,17 @@ def limit_images_with_priority(soup: "BeautifulSoup", max_global: int = 50) -> N
 
     # 5) Garder seulement les `remaining` premières images du portfolio
     for fig in portfolio_figs[remaining:]:
-        media = fig.select_one("section.portfolio__media-wrapper")
-        if media:
-            media.decompose()
+        img = fig.find("img")
+        if img:
+            neutralize_img(img, soup)
+
+
+#######
+# Monitoring
+######
+# def get_ram_usage_mb() -> float:
+#     process = psutil.Process(os.getpid())
+#     return process.memory_info().rss / (1024 * 1024)
 
 
 # DEPRECATE. Keep for Legacy
@@ -219,7 +214,7 @@ def sanitize_images(soup: "BeautifulSoup", max_img: int = 3) -> None:
     for i, img in enumerate(imgs):
         if i < max_img:
             continue
-        neutralize_img(img)
+        neutralize_img(img, soup)
 
 if __name__ == "__main__":
     srcset = """

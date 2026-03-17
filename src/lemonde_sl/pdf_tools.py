@@ -133,6 +133,25 @@ def build_pdf_html(
 
     """
 
+    placeholder_css = """
+    .image-placeholder {
+        background: #eee;
+        border: 1px solid #ddd;
+        color: #555;
+        font-size: 0.75rem;
+        font-style: italic;
+        min-height: 45px;
+
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        padding: 6px;
+        text-align: center;
+        white-space: pre-line;  /* ← permet les retours à la ligne */
+    }
+    """
+
     # Theme CSS
     if dark:
         theme_css = f"""
@@ -172,7 +191,7 @@ def build_pdf_html(
         """
 
     # CSS final
-    css_string = page_css + title_css + theme_css
+    css_string = page_css + title_css + theme_css + placeholder_css
 
     # HTML final
     html = f"""
