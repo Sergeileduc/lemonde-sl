@@ -116,18 +116,18 @@ if __name__ == "__main__":
         os.remove(ht)
 
     # Sync
-    runsync_one(mobile=False, dark=False)
+    # runsync_one(mobile=False, dark=False)
     # time.sleep(0.5)
-    runsync_matrix(matrix=["normal_light", "normal_dark", "mobile_light", "mobile_dark"])
-    time.sleep(0.5)
+    # runsync_matrix(matrix=["normal_light", "normal_dark", "mobile_light", "mobile_dark"])
+    # time.sleep(0.5)
     runsync_all()
     time.sleep(0.5)
 
     # Async
-    asyncio.run(runasync_one(mobile=False, dark=False))
+    # asyncio.run(runasync_one(mobile=False, dark=False))
     # time.sleep(0.5)
-    asyncio.run(
-        runasync_matrix(matrix=["normal_light", "normal_dark", "mobile_light", "mobile_dark"])
-    )
+    # asyncio.run(
+    #     runasync_matrix(matrix=["normal_light", "normal_dark", "mobile_light", "mobile_dark"])
+    # )
     # time.sleep(0.5)
     asyncio.run(runasync_all())

@@ -40,11 +40,34 @@ class LeMondeBase(ABC):
 
     login_headers = {"Referer": LOGIN_URL}
 
-    headers = {
+    headers_login = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         )
+    }
+
+    headers_article = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/123.0.0.0 Safari/537.36"
+        ),
+        "Accept": (
+            "text/html,application/xhtml+xml,application/xml;"
+            "q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
+        ),
+        "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Referer": "https://www.google.com/",
+        # Cookie Didomi minimal (consentement générique)
+        # "Cookie": "didomi_token=eyJ1c2VyX2lkIjoiZHVtbXkifQ==",
     }
 
     # Bloats in HTML
@@ -147,7 +170,7 @@ class LeMonde(LeMondeBase):
     def __init__(self):
         # Le client vit aussi longtemps que l'objet
         self.client = httpx.Client(
-            headers=self.headers,
+            headers=self.headers_login,
             follow_redirects=True,
             timeout=10.0,
         )
@@ -166,7 +189,7 @@ class LeMonde(LeMondeBase):
             RuntimeError: If the login form cannot be found in the HTML.
             httpx.HTTPStatusError: If the GET or POST request fails.
         """
-        resp = self.client.get(self.LOGIN_URL)
+        resp = self.client.get(self.LOGIN_URL, headers=self.headers_login)
         resp.raise_for_status()
         raw_html = resp.text
 
@@ -174,7 +197,7 @@ class LeMonde(LeMondeBase):
 
         time.sleep(0.5)
 
-        headers = {**self.headers, "Referer": self.LOGIN_URL}
+        headers = {**self.headers_login, "Referer": self.LOGIN_URL}
         resp2 = self.client.post(self.LOGIN_URL, data=payload, headers=headers)
         resp2.raise_for_status()
         time.sleep(0.5)
@@ -213,7 +236,7 @@ class LeMonde(LeMondeBase):
         Raises:
             httpx.HTTPStatusError: If the server returns a 4xx or 5xx status code.
         """
-        resp = self.client.get(url)
+        resp = self.client.get(url, headers=self.headers_article)
         resp.raise_for_status()
         logger.info("webpage correctly fetched : %s", url)
         return resp.text  # type: ignore[no-any-return,unused-ignore]
@@ -510,7 +533,7 @@ class LeMonde(LeMondeBase):
 class LeMondeAsync(LeMondeBase):
     def __init__(self):
         self.client = httpx.AsyncClient(
-            headers=self.headers,
+            headers=self.headers_login,
             follow_redirects=True,
             timeout=10.0,
         )
@@ -538,7 +561,7 @@ class LeMondeAsync(LeMondeBase):
 
         await asyncio.sleep(0.5)
 
-        headers = {**self.headers, "Referer": self.LOGIN_URL}
+        headers = {**self.headers_login, "Referer": self.LOGIN_URL}
         resp2 = await self.client.post(self.LOGIN_URL, data=payload, headers=headers)
         resp2.raise_for_status()
 
@@ -564,7 +587,7 @@ class LeMondeAsync(LeMondeBase):
         Raises:
             httpx.HTTPStatusError: If the server returns a 4xx or 5xx status code.
         """
-        resp = await self.client.get(url)
+        resp = await self.client.get(url, headers=self.headers_article)
         resp.raise_for_status()
         return resp.text  # type: ignore[no-any-return,unused-ignore]
 
