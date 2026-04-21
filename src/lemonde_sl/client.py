@@ -25,6 +25,14 @@ from .types import PathType
 
 logger = logging.getLogger(__name__)
 
+class ArticleParseError(Exception):
+    """Raised when the article body cannot be extracted."""
+
+
+class PDFError(Exception):
+    """Raised when PDF generation fails."""
+
+
 PDF_EXECUTOR = ProcessPoolExecutor(
     max_workers=1
 )  # Un seul worker pour éviter les corruptions internes
@@ -95,7 +103,7 @@ class LeMondeBase(ABC):
     # PARSE
     # ---------------------------------------------------------
     @classmethod
-    def parse(cls, html: str) -> str | None:
+    def parse(cls, html: str) -> str:
         """Extract and clean the main article content from a LM HTML page.
 
         Locates the article body using CSS selectors, removes known UI elements
@@ -108,14 +116,16 @@ class LeMondeBase(ABC):
         Returns:
             str|None: Cleaned HTML fragment containing the article body, or ``None`` if the
             article structure cannot be found.
+
+        Raises:
+            ArticleParseError
         """
         # 1) Selectolax : extraction + nettoyage structurel
         parser = HTMLParser(html)
 
         article_body = parser.css_first("main > .article--content")
         if not article_body:
-            logger.warning("Article body not found in HTML")
-            return None
+            raise ArticleParseError("Article body not found in HTML")
 
         # Remove UI junk
         cls._remove_bloats(article_body)
@@ -241,7 +251,7 @@ class LeMonde(LeMondeBase):
         logger.info("webpage correctly fetched : %s", url)
         return resp.text  # type: ignore[no-any-return,unused-ignore]
 
-    def fetch_and_parse(self, url: str) -> str | None:
+    def fetch_and_parse(self, url: str) -> str:
         """Fetch and parse an article (sync).
 
         Sends an authenticated GET request using ``httpx.Client``
@@ -256,14 +266,30 @@ class LeMonde(LeMondeBase):
             url (str): Full URL of the article to retrieve.
 
         Returns:
-            str|None: Cleaned HTML fragment containing the article body, or ``None`` if the
-            article structure cannot be found.
+            str: Cleaned HTML fragment containing the article body
 
         Raises:
             httpx.HTTPStatusError: If the server returns a 4xx or 5xx status code.
+            ArticleParseError if the article body cannot be extracted
         """
         html = self.fetch(url=url)
         return self.parse(html)
+
+    def _fetch_article_body(
+        self,
+        url: str,
+        email: str | None,
+        password: str | None,
+    ) -> str:
+        """Login éventuel + fetch + parse, avec log + re-raise."""
+        if email and password:
+            self.login(email, password)
+
+        try:
+            return self.fetch_and_parse(url=url)
+        except ArticleParseError as e:
+            logger.warning("Impossible de parser l'article %s: %s", url, e)
+            raise
 
     def fetch_pdf(
         self,
@@ -296,21 +322,20 @@ class LeMonde(LeMondeBase):
             MyArticle
 
         Raises:
-            RuntimeError: Si l'article ne peut pas être récupéré ou nettoyé.
             LoginError: Si le login échoue (si implémenté dans ta classe).
             ValueError: Si l'URL est invalide.
+            ArticleParseError: If the article body cannot be extracted.
         """
 
-        if email and password:
-            self.login(email, password)
-
-        article_body = self.fetch_and_parse(url=url)
-        if not article_body:
-            raise RuntimeError("Impossible de parser l'article")
+        article_body = self._fetch_article_body(url, email, password)
 
         output_path = make_pdf_name(url, mobile=mobile, dark=dark)
         return self.render_variant_pdf(
-            article_body, name=output_path, mobile=mobile, dark=dark, max_img=max_img
+            article_body,
+            name=output_path,
+            mobile=mobile,
+            dark=dark,
+            max_img=max_img,
         )
 
     def fetch_multiple_pdf(
@@ -343,29 +368,26 @@ class LeMonde(LeMondeBase):
             list[MyArticle]
 
         Raises:
-            RuntimeError: Si l'article ne peut pas être récupéré ou nettoyé.
             LoginError: Si le login échoue (si implémenté dans ta classe).
             ValueError: Si l'URL est invalide.
+            ArticleParseError: If the article body cannot be extracted.
         """
 
-        if email and password:
-            self.login(email, password)
-
-        article_body = self.fetch_and_parse(url=url)
-        if not article_body:
-            raise RuntimeError("Impossible de parser l'article")
+        article_body = self._fetch_article_body(url, email, password)
 
         my_articles = []
-
-        # loop on the matrix of styles
         for style in matrix:
             mobile, dark = parse_style(style)
-
             name = make_pdf_name(url, mobile=mobile, dark=dark)
             article = self.render_variant_pdf(
-                article_body, name=name, mobile=mobile, dark=dark, max_img=max_img
+                article_body,
+                name=name,
+                mobile=mobile,
+                dark=dark,
+                max_img=max_img,
             )
             my_articles.append(article)
+
         return my_articles
 
     def fetch_all_pdf(
@@ -448,7 +470,7 @@ class LeMonde(LeMondeBase):
 
 
         Raises:
-            OSError: If weasypring is missing or weasypring fails.
+            PDFError
 
         Returns:
             tuple[bool, str | None]:
@@ -464,11 +486,10 @@ class LeMonde(LeMondeBase):
             return True, None
 
         except OSError as e:
-            logger.error("weasyprint failed on first attempt")
-            logger.error(e)
+            logger.error("WeasyPrint failed on first attempt: %s", e)
 
             if not remove_multimedia:
-                raise
+                raise PDFError(f"WeasyPrint failed: {e}") from e
 
             logger.warning("Retrying after removing multimedia embeds")
 
@@ -477,14 +498,18 @@ class LeMonde(LeMondeBase):
             for node in cleaned_html.css("div.multimedia-embed"):
                 node.decompose()
 
+            cleaned = cleaned_html.html
+            assert cleaned is not None  # invariant: cleaned_html.html is always a string
+
             try:
-                render_pdf_sync(html, css, output_path)
+                # ⚠️ we use cleaned_html.html
+                render_pdf_sync(cleaned, css, output_path)
+                logger.info("Weasyprint succeeded after cleanup")
                 return True, None
 
             except Exception as e2:
-                logger.error("Second attempt failed as well")
-                logger.error(e2)
-                raise
+                logger.error("Second attempt failed as well: %s", e2)
+                raise PDFError(f"WeasyPrint failed after cleanup: {e2}") from e2
 
     def close(self):
         self.client.close()
@@ -591,7 +616,7 @@ class LeMondeAsync(LeMondeBase):
         resp.raise_for_status()
         return resp.text  # type: ignore[no-any-return,unused-ignore]
 
-    async def fetch_and_parse(self, url: str) -> str | None:
+    async def fetch_and_parse(self, url: str) -> str:
         """Fetch and parse a LM article (asynchronous).
 
         Sends an authenticated GET request using ``httpx.AsyncClient``
@@ -606,14 +631,31 @@ class LeMondeAsync(LeMondeBase):
             url (str): Full URL of the LM article to retrieve.
 
         Returns:
-            str|None: Cleaned HTML fragment containing the article body, or ``None`` if the
-            article structure cannot be found.
+            str: Cleaned HTML fragment containing the article body
 
         Raises:
             httpx.HTTPStatusError: If the server returns a 4xx or 5xx status code.
+            ArticleParseError: If the article body cannot be extracted.
         """
         html = await self.fetch(url)
         return self.parse(html)
+
+    async def _fetch_article_body(
+        self,
+        url: str,
+        email: str | None,
+        password: str | None,
+    ) -> str:
+        """Login éventuel + fetch + parse, avec log + re-raise (async)."""
+
+        if email and password:
+            await self.login(email, password)
+
+        try:
+            return await self.fetch_and_parse(url)
+        except ArticleParseError as e:
+            logger.warning("Impossible de parser l'article %s: %s", url, e)
+            raise
 
     async def fetch_pdf(
         self,
@@ -646,27 +688,20 @@ class LeMondeAsync(LeMondeBase):
             MyArticle
 
         Raises:
-            RuntimeError: Si l'article ne peut pas être récupéré ou nettoyé.
             LoginError: Si le login échoue (si implémenté dans ta classe).
             ValueError: Si l'URL est invalide.
+            ArticleParseError: If the article body cannot be extracted.
         """
-        # 1) login si credentials fournis
-        if email and password:
-            await self.login(email, password)
-
-        # 2) fetch + parse
-        article_body = await self.fetch_and_parse(url)
-        if not article_body:
-            raise RuntimeError("Impossible de parser l'article")
+        article_body = await self._fetch_article_body(url, email, password)
 
         output_path = make_pdf_name(url, mobile=mobile, dark=dark)
 
-        # generate PDF
-        logger.info("launching to_pdf in running loop")
-        logger.info("to_pdf completed")
-
         return await self.render_variant_pdf(
-            article_body, name=output_path, mobile=mobile, dark=dark, max_img=max_img
+            article_body,
+            name=output_path,
+            mobile=mobile,
+            dark=dark,
+            max_img=max_img,
         )
 
     async def fetch_multiple_pdf(
@@ -699,25 +734,19 @@ class LeMondeAsync(LeMondeBase):
             list[MyArticle]
 
         Raises:
-            RuntimeError: Si l'article ne peut pas être récupéré ou nettoyé.
             LoginError: Si le login échoue (si implémenté dans ta classe).
             ValueError: Si l'URL est invalide.
+            ArticleParseError: If the article body cannot be extracted.
         """
 
-        if email and password:
-            await self.login(email, password)
-
-        article_body = await self.fetch_and_parse(url=url)
-        if not article_body:
-            raise RuntimeError("Impossible de parser l'article")
+        article_body = await self._fetch_article_body(url, email, password)
 
         my_articles: list[MyArticle] = []
 
-        # loop on the matrix of styles
         for style in matrix:
             mobile, dark = parse_style(style)
-
             name = make_pdf_name(url, mobile=mobile, dark=dark)
+
             article = await self.render_variant_pdf(
                 article_body,
                 name=name,
@@ -726,6 +755,7 @@ class LeMondeAsync(LeMondeBase):
                 max_img=max_img,
             )
             my_articles.append(article)
+
         return my_articles
 
     async def fetch_all_pdf(
@@ -825,11 +855,10 @@ class LeMondeAsync(LeMondeBase):
             return True, None
 
         except OSError as e:
-            logger.error("weazyprint failed on first attempt")
-            logger.error(e)
+            logger.error("WeasyPrint failed on first attempt: %s", e)
 
             if not remove_multimedia:
-                raise
+                raise PDFError(f"WeasyPrint failed: {e}") from e
 
             logger.warning("Retrying after removing multimedia embeds")
 
@@ -839,8 +868,11 @@ class LeMondeAsync(LeMondeBase):
                 node.decompose()
             logger.info("Decomposing some medias-embed")
             logger.info("Retry weasyprint")
+
+            cleaned = cleaned_html.html
+            assert cleaned is not None  # invariant: cleaned_html.html is always a string
             try:
-                await asyncio.to_thread(render_pdf_sync, html, css, output_path)
+                await asyncio.to_thread(render_pdf_sync, cleaned, css, output_path)
 
                 logger.info("2nd attempt weasy print OK")
                 return (
@@ -848,9 +880,8 @@ class LeMondeAsync(LeMondeBase):
                     "Multimedia content was removed because weasyprint could not render it.",
                 )
             except Exception as e2:
-                logger.error("Second attempt failed as well")
-                logger.error(e2)
-                raise
+                logger.error("Second attempt failed as well: %s", e2)
+                raise PDFError(f"WeasyPrint failed after cleanup: {e2}") from e2
 
     async def close(self) -> None:
         await self.client.aclose()
