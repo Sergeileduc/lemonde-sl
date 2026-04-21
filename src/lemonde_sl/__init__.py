@@ -1,9 +1,18 @@
 import logging
 
 from .client import Comment, LeMonde, LeMondeAsync, parse_comment
+from .exceptions import ArticleParseError, PDFError
 from .models import MyArticle
 
-__all__ = ["LeMonde", "LeMondeAsync", "Comment", "parse_comment", "MyArticle"]
+__all__ = [
+    "LeMonde",
+    "LeMondeAsync",
+    "Comment",
+    "parse_comment",
+    "MyArticle",
+    "ArticleParseError",
+    "PDFError",
+]
 
 # Neutraliser les logs DEBUG très verbeux de fontTools (utilisé par WeasyPrint)
 _font_logger = logging.getLogger("fontTools")

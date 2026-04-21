@@ -17,6 +17,7 @@ from rich.panel import Panel
 from rich.text import Text
 from selectolax.parser import HTMLParser, Node
 
+from .exceptions import ArticleParseError, PDFError
 from .models import Comment, JSONObject, MyArticle
 from .parse_tools import parse_style
 from .pdf_tools import build_pdf_html, make_pdf_name, render_pdf_sync
@@ -24,13 +25,6 @@ from .tools import fix_image_urls, limit_images_with_priority, simplify_picture_
 from .types import PathType
 
 logger = logging.getLogger(__name__)
-
-class ArticleParseError(Exception):
-    """Raised when the article body cannot be extracted."""
-
-
-class PDFError(Exception):
-    """Raised when PDF generation fails."""
 
 
 PDF_EXECUTOR = ProcessPoolExecutor(
